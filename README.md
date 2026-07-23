@@ -6,6 +6,7 @@
 
 - 三市场指数表现、5 日资金动能与数据置信度
 - 美股 `NVDA`、韩股 `005930.KS`、A 股 `600519.SS` 等代码搜索
+- 韩股外资/机构/个人逐日净买入与 A 股主力/大单/中小单净流入
 - 日 K、MA5、MA20、RSI(14)、成交量比与多因子评分
 - 每日观察池、研究目标、信号失效参考与风险提示
 - Yahoo Finance 行情异常时自动降级到带有明确标签的演示缓存
@@ -33,10 +34,25 @@ npm run build
 | 市场 | 当前口径 | 后续生产数据源 |
 | --- | --- | --- |
 | 美股 | 指数及个股量价代理 | ETF 申赎、COT、期权流或持牌逐笔数据 |
-| 韩股 | KOSPI 量价代理 | KRX/pykrx 外资、机构、个人净买入 |
-| A 股 | 沪深 300 量价代理 | 东方财富主力资金、北向持仓或 Tushare |
+| 韩股 | NaverPay 投资者逐日净买入；市场卡使用三星电子、SK 海力士、NAVER 代表篮子 | KRX/pykrx 全市场汇总（可选） |
+| A 股 | 东方财富当日沪深主力资金及个股订单规模净流入 | Tushare 或持牌逐笔数据（可选） |
 
 不同市场没有统一的“主力资金”官方定义，界面因此始终显示来源与置信度，不把代理指标描述成真实订单流。
+
+韩股资金单位为万股（个股）或亿韩元（代表篮子），A 股资金单位为亿元。美股没有官方公开的逐股投资者分类净买入，因此仍明确标记为量价代理。
+
+## 在线部署
+
+项目不需要 API Key，可以直接部署到 Vercel：
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FHYW1%2F-)
+
+1. 点击按钮并登录 Vercel；
+2. 保持 Framework Preset 为 `Next.js`；
+3. 点击 Deploy，完成后即可获得永久 HTTPS 链接；
+4. 如需自动更新，在 Vercel 中选择本仓库并将 Production Branch 设为 `main`。
+
+服务器需要能够访问 `query1.finance.yahoo.com`、`m.stock.naver.com` 和 `push2delay.eastmoney.com`。接口失败时页面会保留最后可用行情或明确显示代理/缓存口径。
 
 ## 量化评分
 

@@ -4,6 +4,7 @@ import type {
   FlowPoint,
   Market,
   MarketSnapshot,
+  StockFlow,
   StockSignal,
 } from "./types";
 
@@ -27,6 +28,7 @@ const BENCHMARKS = [
     index: "S&P 500",
     symbol: "^GSPC",
     flowLabel: "量价资金代理",
+    flowUnit: "动能分",
     source: "Yahoo Finance · OBV/成交量代理",
     confidence: "代理" as const,
   },
@@ -37,6 +39,7 @@ const BENCHMARKS = [
     index: "KOSPI",
     symbol: "^KS11",
     flowLabel: "外资/机构代理",
+    flowUnit: "亿韩元",
     source: "Yahoo Finance · KRX 指数代理",
     confidence: "中" as const,
   },
@@ -47,6 +50,7 @@ const BENCHMARKS = [
     index: "沪深300",
     symbol: "000300.SS",
     flowLabel: "主力资金代理",
+    flowUnit: "亿元",
     source: "Yahoo Finance · 沪深300量价代理",
     confidence: "中" as const,
   },
@@ -138,6 +142,166 @@ type YahooChart = {
     }>;
   };
 };
+
+type NaverFlowRow = {
+  bizdate?: string;
+  foreignerPureBuyQuant?: string;
+  organPureBuyQuant?: string;
+  individualPureBuyQuant?: string;
+  closePrice?: string;
+};
+
+function parseNumeric(value?: string) {
+  if (!value) return 0;
+  const parsed = Number(value.replaceAll(",", "").replaceAll("+", "").replace("%", ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function fetchNaverFlowRows(code: string, pageSize = 12): Promise<NaverFlowRow[]> {
+  const url = new URL("https://m.stock.naver.com/front-api/stock/domestic/trend");
+  url.searchParams.set("code", code);
+  url.searchParams.set("marketType", "KRX");
+  url.searchParams.set("pageSize", String(pageSize));
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      Referer: `https://m.stock.naver.com/domestic/stock/${code}/total`,
+    },
+    next: { revalidate: 900 },
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!response.ok) throw new Error(`NaverPay 返回 ${response.status}`);
+  const payload = await response.json();
+  const rows = Array.isArray(payload) ? payload : payload?.result;
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error("韩股资金流为空");
+  return rows;
+}
+
+async function fetchKoreanMarketFlow(): Promise<{
+  netFlow: number;
+  flow: FlowPoint[];
+  source: string;
+}> {
+  const basket = ["005930", "000660", "035420"];
+  const results = await Promise.all(basket.map((code) => fetchNaverFlowRows(code)));
+  const byDate = new Map<string, FlowPoint>();
+
+  results.flat().forEach((row) => {
+    const date = row.bizdate ?? "";
+    const price = parseNumeric(row.closePrice);
+    const current = byDate.get(date) ?? { date: date.slice(4, 8), foreign: 0, institution: 0, retail: 0 };
+    current.foreign += (parseNumeric(row.foreignerPureBuyQuant) * price) / 100_000_000;
+    current.institution += (parseNumeric(row.organPureBuyQuant) * price) / 100_000_000;
+    current.retail += (parseNumeric(row.individualPureBuyQuant) * price) / 100_000_000;
+    byDate.set(date, current);
+  });
+  const flow = [...byDate.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, point]) => ({
+      ...point,
+      foreign: round(point.foreign),
+      institution: round(point.institution),
+      retail: round(point.retail),
+    }));
+  const latest = flow.at(-1);
+  if (!latest) throw new Error("韩股资金流为空");
+  return {
+    netFlow: round(latest.foreign + latest.institution),
+    flow,
+    source: "NaverPay · 三星电子/SK海力士/NAVER 代表股篮子",
+  };
+}
+
+type EastmoneyFlow = {
+  data?: {
+    name?: string;
+    klines?: string[];
+  };
+};
+
+function eastmoneySecid(symbol: string) {
+  const code = symbol.split(".")[0];
+  return `${symbol.endsWith(".SS") ? "1" : "0"}.${code}`;
+}
+
+async function fetchEastmoneyFlow(secid: string, secid2?: string) {
+  const url = new URL("https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get");
+  url.searchParams.set("secid", secid);
+  if (secid2) url.searchParams.set("secid2", secid2);
+  url.searchParams.set("lmt", "20");
+  url.searchParams.set("klt", "101");
+  url.searchParams.set("fields1", "f1,f2,f3,f7");
+  url.searchParams.set("fields2", "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63");
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      Referer: "https://quote.eastmoney.com/",
+      "User-Agent": "Mozilla/5.0 MarketPulse/1.0",
+    },
+    next: { revalidate: 900 },
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) throw new Error(`东方财富返回 ${response.status}`);
+  const payload = (await response.json()) as EastmoneyFlow;
+  const rows = payload.data?.klines;
+  if (!rows?.length) throw new Error("A股资金流为空");
+  return rows.map((row) => {
+    const [date, main, small, medium, large, superLarge] = row.split(",");
+    return {
+      date,
+      main: Number(main),
+      small: Number(small),
+      medium: Number(medium),
+      large: Number(large),
+      superLarge: Number(superLarge),
+    };
+  });
+}
+
+async function fetchChinaMarketFlow() {
+  const rows = await fetchEastmoneyFlow("1.000001", "0.399001");
+  const latest = rows.at(-1)!;
+  return {
+    netFlow: round(latest.main / 100_000_000),
+    point: {
+      date: latest.date.slice(5),
+      foreign: round(latest.main / 100_000_000),
+      institution: round(latest.superLarge / 100_000_000),
+      retail: round((latest.small + latest.medium) / 100_000_000),
+    },
+  };
+}
+
+async function fetchStockFlow(symbol: string, market: Market): Promise<StockFlow | undefined> {
+  if (market === "KR") {
+    const code = symbol.split(".")[0];
+    const row = (await fetchNaverFlowRows(code, 5))[0];
+    return {
+      label: "外资净买入",
+      primary: round(parseNumeric(row.foreignerPureBuyQuant) / 10_000),
+      institution: round(parseNumeric(row.organPureBuyQuant) / 10_000),
+      retail: round(parseNumeric(row.individualPureBuyQuant) / 10_000),
+      unit: "万股",
+      source: "NaverPay · 投资者逐日净买入",
+      asOf: row.bizdate
+        ? `${row.bizdate.slice(0, 4)}-${row.bizdate.slice(4, 6)}-${row.bizdate.slice(6, 8)}`
+        : "",
+    };
+  }
+  if (market === "CN") {
+    const row = (await fetchEastmoneyFlow(eastmoneySecid(symbol))).at(-1)!;
+    return {
+      label: "主力净流入",
+      primary: round(row.main / 100_000_000),
+      institution: round((row.large + row.superLarge) / 100_000_000),
+      retail: round((row.small + row.medium) / 100_000_000),
+      unit: "亿元",
+      source: "东方财富 · 延时资金流",
+      asOf: row.date,
+    };
+  }
+  return undefined;
+}
 
 export async function fetchCandles(symbol: string): Promise<Candle[]> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d&events=div%2Csplits`;
@@ -295,12 +459,44 @@ export function fallbackDashboard(): DashboardData {
 export async function getDashboard(): Promise<DashboardData> {
   const fallback = fallbackDashboard();
   const [marketResults, stockResults] = await Promise.all([
-    Promise.allSettled(BENCHMARKS.map(async (benchmark) =>
-      snapshotFromCandles(benchmark, await fetchCandles(benchmark.symbol)),
-    )),
-    Promise.allSettled(UNIVERSE.map(async (item) =>
-      analyzeCandles(item.symbol, item.name, item.market, await fetchCandles(item.symbol)),
-    )),
+    Promise.allSettled(BENCHMARKS.map(async (benchmark) => {
+      const snapshot = snapshotFromCandles(benchmark, await fetchCandles(benchmark.symbol));
+      if (benchmark.market === "KR") {
+        const actual = await fetchKoreanMarketFlow();
+        return {
+          ...snapshot,
+          netFlow: actual.netFlow,
+          flow: actual.flow,
+          flowLabel: "代表股外资+机构净买入",
+          source: actual.source,
+          confidence: "中" as const,
+          trend: actual.netFlow >= 0 ? "in" as const : "out" as const,
+        };
+      }
+      if (benchmark.market === "CN") {
+        const actual = await fetchChinaMarketFlow();
+        return {
+          ...snapshot,
+          netFlow: actual.netFlow,
+          flow: [...snapshot.flow.slice(1), actual.point],
+          flowLabel: "当日沪深主力净流入",
+          source: "东方财富当日资金流 · 历史线为量价代理",
+          confidence: "高" as const,
+          trend: actual.netFlow >= 0 ? "in" as const : "out" as const,
+        };
+      }
+      return snapshot;
+    })),
+    Promise.allSettled(UNIVERSE.map(async (item) => {
+      const [candles, flow] = await Promise.all([
+        fetchCandles(item.symbol),
+        fetchStockFlow(item.symbol, item.market).catch(() => undefined),
+      ]);
+      return {
+        ...analyzeCandles(item.symbol, item.name, item.market, candles),
+        flow,
+      };
+    })),
   ]);
 
   const markets = marketResults.map((result, index) =>
@@ -324,6 +520,12 @@ export async function analyzeSymbol(rawSymbol: string): Promise<StockSignal> {
   if (!/^[A-Z0-9^.-]{1,20}$/.test(symbol)) throw new Error("股票代码格式无效");
   const known = UNIVERSE.find((item) => item.symbol === symbol);
   const market = known?.market ?? marketFromSymbol(symbol);
-  const candles = await fetchCandles(symbol);
-  return analyzeCandles(symbol, known?.name ?? symbol, market, candles);
+  const [candles, flow] = await Promise.all([
+    fetchCandles(symbol),
+    fetchStockFlow(symbol, market).catch(() => undefined),
+  ]);
+  return {
+    ...analyzeCandles(symbol, known?.name ?? symbol, market, candles),
+    flow,
+  };
 }

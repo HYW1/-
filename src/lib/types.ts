@@ -28,11 +28,22 @@ export type MarketSnapshot = {
   change: number;
   netFlow: number;
   flowLabel: string;
+  flowUnit: string;
   trend: "in" | "out";
   confidence: "高" | "中" | "代理";
   source: string;
   sparkline: number[];
   flow: FlowPoint[];
+};
+
+export type StockFlow = {
+  label: string;
+  primary: number;
+  institution: number;
+  retail: number;
+  unit: string;
+  source: string;
+  asOf: string;
 };
 
 export type StockSignal = {
@@ -52,6 +63,7 @@ export type StockSignal = {
   candles: Candle[];
   source: string;
   asOf: string;
+  flow?: StockFlow;
 };
 
 export type DashboardData = {

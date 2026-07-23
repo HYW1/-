@@ -230,9 +230,9 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
               </ResponsiveContainer>
             </div>
             <div className="flow-total">
-              <span>{item.flowLabel} · 5日</span>
+              <span>{item.flowLabel}</span>
               <b className={item.netFlow >= 0 ? "positive" : "negative"}>
-                {item.netFlow >= 0 ? "+" : ""}{formatNumber(item.netFlow)} 亿
+                {item.netFlow >= 0 ? "+" : ""}{formatNumber(item.netFlow)} {item.flowUnit}
               </b>
             </div>
           </button>
@@ -258,16 +258,16 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                   contentStyle={{ background: "#131714", border: "1px solid #2d352f", borderRadius: 4 }}
                   labelStyle={{ color: "#9ca59d" }}
                 />
-                <Line type="monotone" dataKey="foreign" name="外资/大单代理" stroke="#bbf24a" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="institution" name="机构代理" stroke="#5ab9ff" dot={false} strokeWidth={1.8} />
-                <Line type="monotone" dataKey="retail" name="散户代理" stroke="#8a918b" dot={false} strokeDasharray="4 5" />
+                <Line type="monotone" dataKey="foreign" name={selectedMarket === "KR" ? "外资" : selectedMarket === "CN" ? "主力" : "大单代理"} stroke="#bbf24a" dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="institution" name={selectedMarket === "KR" ? "机构" : selectedMarket === "CN" ? "超大单" : "机构代理"} stroke="#5ab9ff" dot={false} strokeWidth={1.8} />
+                <Line type="monotone" dataKey="retail" name={selectedMarket === "KR" ? "个人" : selectedMarket === "CN" ? "中小单" : "散户代理"} stroke="#8a918b" dot={false} strokeDasharray="4 5" />
               </LineChart>
             </ResponsiveContainer>
           </div>
           <div className="metric-row">
-            <div><small>5日合成净流</small><b className={market.netFlow >= 0 ? "positive" : "negative"}>{market.netFlow >= 0 ? "+" : ""}{market.netFlow} 亿</b></div>
+            <div><small>{market.flowLabel}</small><b className={market.netFlow >= 0 ? "positive" : "negative"}>{market.netFlow >= 0 ? "+" : ""}{market.netFlow} {market.flowUnit}</b></div>
             <div><small>资金方向</small><b>{market.trend === "in" ? "持续流入" : "短期流出"}</b></div>
-            <div><small>数据口径</small><b>{market.confidence === "代理" ? "量价估算" : "市场代理"}</b></div>
+            <div><small>数据口径</small><b>{market.confidence === "高" ? "真实资金流" : market.confidence === "中" ? "真实代表篮子" : "量价估算"}</b></div>
           </div>
         </article>
 
@@ -330,6 +330,19 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <div className="strategy-card">
             <div className="strategy-head"><Sparkles size={17} /><span>策略解读</span></div>
             <p>{selectedStock.reason}</p>
+            {selectedStock.flow && (
+              <div className="real-flow">
+                <div className="real-flow-head">
+                  <span><Database size={13} />真实资金数据 · {selectedStock.flow.asOf}</span>
+                  <small>{selectedStock.flow.source}</small>
+                </div>
+                <div className="real-flow-grid">
+                  <div><small>{selectedStock.flow.label}</small><b className={selectedStock.flow.primary >= 0 ? "positive" : "negative"}>{selectedStock.flow.primary >= 0 ? "+" : ""}{selectedStock.flow.primary} {selectedStock.flow.unit}</b></div>
+                  <div><small>{selectedStock.market === "KR" ? "机构净买入" : "大单+超大单"}</small><b className={selectedStock.flow.institution >= 0 ? "positive" : "negative"}>{selectedStock.flow.institution >= 0 ? "+" : ""}{selectedStock.flow.institution} {selectedStock.flow.unit}</b></div>
+                  <div><small>{selectedStock.market === "KR" ? "个人净买入" : "中单+小单"}</small><b className={selectedStock.flow.retail >= 0 ? "positive" : "negative"}>{selectedStock.flow.retail >= 0 ? "+" : ""}{selectedStock.flow.retail} {selectedStock.flow.unit}</b></div>
+                </div>
+              </div>
+            )}
             <div className="indicator-grid">
               <div><Gauge size={15} /><small>RSI (14)</small><b>{selectedStock.rsi}</b></div>
               <div><BarChart3 size={15} /><small>成交量比</small><b>{selectedStock.volumeRatio}x</b></div>
