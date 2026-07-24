@@ -133,6 +133,7 @@ function KlineChart({ candles }: { candles: Candle[] }) {
 export default function Dashboard({ initialData }: { initialData: DashboardData }) {
   const [data] = useState(initialData);
   const [selectedMarket, setSelectedMarket] = useState<Market>("US");
+  const [screenerMarket, setScreenerMarket] = useState<Market | "ALL">("ALL");
   const [selectedStock, setSelectedStock] = useState<StockSignal>(initialData.picks[0]);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyId>("balanced");
   const [query, setQuery] = useState("");
@@ -152,8 +153,24 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       ),
     [data.picks, selectedMarket, selectedStrategy],
   );
+  const screenedPicks = useMemo(
+    () => data.picks
+      .filter((pick) => screenerMarket === "ALL" || pick.market === screenerMarket)
+      .sort((left, right) =>
+        right.strategyScores[selectedStrategy].score - left.strategyScores[selectedStrategy].score,
+      ),
+    [data.picks, screenerMarket, selectedStrategy],
+  );
   const activeStrategy = strategies.find((item) => item.id === selectedStrategy) ?? strategies[0];
   const activeStockScore = selectedStock.strategyScores[selectedStrategy];
+
+  function showStock(stock: StockSignal) {
+    setSelectedStock(stock);
+    setSelectedMarket(stock.market);
+    window.requestAnimationFrame(() => {
+      document.querySelector("#analysis")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   useEffect(() => {
     const value = query.trim();
@@ -195,10 +212,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       const response = await fetch(`/api/analyze?symbol=${encodeURIComponent(value.trim())}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "分析失败");
-      setSelectedStock(result as StockSignal);
-      setSelectedMarket((result as StockSignal).market);
+      showStock(result as StockSignal);
       setQuery((result as StockSignal).symbol);
-      document.querySelector("#analysis")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "分析失败");
     } finally {
@@ -220,6 +235,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         </a>
         <nav>
           <a className="active" href="#overview">市场概览</a>
+          <a href="#screener">智能选股</a>
           <a href="#signals">量化信号</a>
           <a href="#analysis">个股研究</a>
           <a href="#method">方法论</a>
@@ -242,6 +258,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           </button>
         </div>
       </header>
+      <div className="mobile-tabs" aria-label="移动端主导航">
+        <a href="#overview"><TrendingUp size={16} /><span>行情</span></a>
+        <a href="#screener"><Sparkles size={16} /><span>选股</span></a>
+        <a href="#analysis"><BarChart3 size={16} /><span>K线</span></a>
+      </div>
 
       <section className="hero" id="overview">
         <div>
@@ -388,11 +409,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           </div>
           <p className="strategy-note">{activeStrategy.note}</p>
           <div className="picks-list">
-            {(visiblePicks.length ? visiblePicks : data.picks.slice(0, 3)).map((pick, index) => (
+            {(visiblePicks.length ? visiblePicks : data.picks).slice(0, 3).map((pick, index) => (
               <button
                 key={pick.symbol}
                 className={`pick-row ${selectedStock.symbol === pick.symbol ? "active" : ""}`}
-                onClick={() => setSelectedStock(pick)}
+                onClick={() => showStock(pick)}
               >
                 <span className="rank">{String(index + 1).padStart(2, "0")}</span>
                 <span className="pick-main">
@@ -408,6 +429,79 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           </div>
           <div className="guardrail"><ShieldAlert size={16} /><span>信号是研究排序，不构成自动买卖指令。</span></div>
         </aside>
+      </section>
+
+      <section className="screener-panel panel" id="screener">
+        <div className="screener-head">
+          <div>
+            <span className="section-kicker">SMART SCREENER</span>
+            <h2>智能选股中心</h2>
+            <p>按市场与策略对完整候选池重新评分；点击任意股票查看 K 线和详细风控。</p>
+          </div>
+          <div className="screener-stats">
+            <div><b>{screenedPicks.length}</b><small>候选股票</small></div>
+            <div><b>{screenedPicks.filter((pick) => pick.strategyScores[selectedStrategy].score >= 64).length}</b><small>达到偏多</small></div>
+          </div>
+        </div>
+        <div className="screener-toolbar">
+          <div className="market-filters">
+            {([
+              ["ALL", "全部市场"],
+              ["US", "美股"],
+              ["KR", "韩股"],
+              ["CN", "A股"],
+            ] as const).map(([value, label]) => (
+              <button
+                className={screenerMarket === value ? "active" : ""}
+                key={value}
+                onClick={() => setScreenerMarket(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="screener-strategies">
+            <span>当前策略</span>
+            <select
+              value={selectedStrategy}
+              onChange={(event) => setSelectedStrategy(event.target.value as StrategyId)}
+              aria-label="选择选股策略"
+            >
+              {strategies.map((strategy) => (
+                <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="screener-grid">
+          {screenedPicks.map((pick, index) => {
+            const profile = pick.strategyScores[selectedStrategy];
+            return (
+              <button className="screener-card" key={pick.symbol} onClick={() => showStock(pick)}>
+                <div className="screener-card-top">
+                  <span className="screener-rank">#{String(index + 1).padStart(2, "0")}</span>
+                  <span className={`market-pill market-${pick.market.toLowerCase()}`}>{marketNames[pick.market]}</span>
+                  <span className={`signal-label signal-${profile.signal}`}>{profile.signal}</span>
+                  <b>{profile.score}</b>
+                </div>
+                <div className="screener-company">
+                  <div><strong>{pick.name}</strong><small>{pick.symbol}</small></div>
+                  <span>{formatNumber(pick.price)} <i className={pick.change >= 0 ? "positive" : "negative"}>{pick.change >= 0 ? "+" : ""}{pick.change}%</i></span>
+                </div>
+                <p>{profile.summary}</p>
+                <div className="screener-tags">
+                  {pick.setupTags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
+                </div>
+                <div className="screener-levels">
+                  <div><small>目标价</small><b>{pick.target}</b></div>
+                  <div><small>止损价</small><b>{pick.stopLoss}</b></div>
+                  <div><small>盈亏比</small><b>{pick.riskReward}:1</b></div>
+                </div>
+                <div className="view-analysis">查看完整分析 <ChevronRight size={14} /></div>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <section className="stock-panel panel" id="analysis">

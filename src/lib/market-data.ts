@@ -34,13 +34,7 @@ const SEARCH_CATALOG = [
   { symbol: "688981.SS", name: "中芯国际", market: "CN" as const, exchange: "科创板", aliases: ["中芯", "中芯国际", "smic"] },
 ];
 
-const DAILY_SYMBOLS = new Set([
-  "NVDA", "MSFT", "AVGO",
-  "005930.KS", "000660.KS", "207940.KS",
-  "600519.SS", "300750.SZ", "601138.SS",
-]);
-
-const UNIVERSE = SEARCH_CATALOG.filter((item) => DAILY_SYMBOLS.has(item.symbol));
+const UNIVERSE = SEARCH_CATALOG;
 
 const BENCHMARKS = [
   {
@@ -723,15 +717,20 @@ export function fallbackDashboard(): DashboardData {
   const markets = BENCHMARKS.map((benchmark, index) =>
     snapshotFromCandles(benchmark, mockCandles(130 + index, bases[index])),
   );
-  const prices = [155, 520, 335, 72000, 230000, 980000, 1500, 195, 48];
   const picks = UNIVERSE.map((item, index) =>
-    fallbackStock(item.symbol, item.name, item.market, prices[index], 440 + index),
+    fallbackStock(
+      item.symbol,
+      item.name,
+      item.market,
+      item.market === "US" ? 150 + index * 18 : item.market === "KR" ? 70_000 + index * 9_000 : 35 + index * 12,
+      440 + index,
+    ),
   ).sort((a, b) => b.score - a.score);
   return {
     updatedAt: new Date().toISOString(),
     mode: "fallback",
     markets,
-    picks: picks.slice(0, 6),
+    picks,
   };
 }
 
@@ -789,8 +788,7 @@ export async function getDashboard(): Promise<DashboardData> {
     mode: livePicks.length >= 3 ? "live" : "fallback",
     markets,
     picks: (livePicks.length ? livePicks : fallback.picks)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6),
+      .sort((a, b) => b.score - a.score),
   };
 }
 
