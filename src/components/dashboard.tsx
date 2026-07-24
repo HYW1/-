@@ -37,6 +37,7 @@ import type {
   Market,
   StockSearchResult,
   StockSignal,
+  StrategyId,
 } from "@/lib/types";
 
 const marketNames: Record<Market, string> = { US: "美股", KR: "韩股", CN: "A股" };
@@ -45,6 +46,13 @@ const marketColors: Record<Market, string> = {
   KR: "#5ab9ff",
   CN: "#ff8a65",
 };
+
+const strategies: Array<{ id: StrategyId; name: string; note: string }> = [
+  { id: "balanced", name: "均衡严选", note: "趋势、动量、量能、位置与风险综合" },
+  { id: "breakout", name: "趋势突破", note: "寻找放量突破与MACD共振" },
+  { id: "pullback", name: "缩量回调", note: "多头趋势中等待低风险回踩" },
+  { id: "defensive", name: "低波防守", note: "优先趋势稳定和低ATR标的" },
+];
 
 function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(value);
@@ -126,6 +134,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [data] = useState(initialData);
   const [selectedMarket, setSelectedMarket] = useState<Market>("US");
   const [selectedStock, setSelectedStock] = useState<StockSignal>(initialData.picks[0]);
+  const [selectedStrategy, setSelectedStrategy] = useState<StrategyId>("balanced");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -136,9 +145,15 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
   const market = data.markets.find((item) => item.market === selectedMarket) ?? data.markets[0];
   const visiblePicks = useMemo(
-    () => data.picks.filter((pick) => pick.market === selectedMarket),
-    [data.picks, selectedMarket],
+    () => data.picks
+      .filter((pick) => pick.market === selectedMarket)
+      .sort((left, right) =>
+        right.strategyScores[selectedStrategy].score - left.strategyScores[selectedStrategy].score,
+      ),
+    [data.picks, selectedMarket, selectedStrategy],
   );
+  const activeStrategy = strategies.find((item) => item.id === selectedStrategy) ?? strategies[0];
+  const activeStockScore = selectedStock.strategyScores[selectedStrategy];
 
   useEffect(() => {
     const value = query.trim();
@@ -358,6 +373,20 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
             <div><span className="section-kicker">DAILY SIGNALS</span><h2>今日量化观察</h2></div>
             <span className="date-tag"><Clock3 size={13} /> {new Date(data.updatedAt).toLocaleDateString("zh-CN")}</span>
           </div>
+          <div className="strategy-tabs" role="tablist" aria-label="选股策略">
+            {strategies.map((strategy) => (
+              <button
+                role="tab"
+                aria-selected={selectedStrategy === strategy.id}
+                className={selectedStrategy === strategy.id ? "active" : ""}
+                key={strategy.id}
+                onClick={() => setSelectedStrategy(strategy.id)}
+              >
+                {strategy.name}
+              </button>
+            ))}
+          </div>
+          <p className="strategy-note">{activeStrategy.note}</p>
           <div className="picks-list">
             {(visiblePicks.length ? visiblePicks : data.picks.slice(0, 3)).map((pick, index) => (
               <button
@@ -368,10 +397,10 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                 <span className="rank">{String(index + 1).padStart(2, "0")}</span>
                 <span className="pick-main">
                   <strong>{pick.name}</strong>
-                  <small>{pick.symbol} · {marketNames[pick.market]}</small>
+                  <small>{pick.symbol} · {pick.strategyScores[selectedStrategy].signal}</small>
                 </span>
-                <span className="score-ring" style={{ "--score": `${pick.score * 3.6}deg` } as React.CSSProperties}>
-                  <i>{pick.score}</i>
+                <span className="score-ring" style={{ "--score": `${pick.strategyScores[selectedStrategy].score * 3.6}deg` } as React.CSSProperties}>
+                  <i>{pick.strategyScores[selectedStrategy].score}</i>
                 </span>
                 <ChevronRight size={16} />
               </button>
@@ -396,8 +425,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
             </div>
           </div>
           <div className="signal-summary">
-            <div className="big-score">{selectedStock.score}<small>/100</small></div>
-            <div><span>多因子评分</span><b>{selectedStock.signal}</b></div>
+            <div className="big-score">{activeStockScore.score}<small>/100</small></div>
+            <div><span>{activeStrategy.name}</span><b>{activeStockScore.signal}</b></div>
           </div>
         </div>
 
@@ -410,8 +439,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
             <KlineChart candles={selectedStock.candles} />
           </div>
           <div className="strategy-card">
-            <div className="strategy-head"><Sparkles size={17} /><span>策略解读</span></div>
-            <p>{selectedStock.reason}</p>
+            <div className="strategy-head"><Sparkles size={17} /><span>{activeStrategy.name} · 策略解读</span></div>
+            <p>{activeStockScore.summary}。{selectedStock.reason}</p>
+            <div className="setup-tags">
+              {selectedStock.setupTags.map((tag) => <span key={tag}>{tag}</span>)}
+            </div>
             {selectedStock.flow && (
               <div className="real-flow">
                 <div className="real-flow-head">
@@ -425,16 +457,34 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                 </div>
               </div>
             )}
+            <div className="factor-breakdown">
+              {([
+                ["趋势", selectedStock.factorScores.trend],
+                ["动量", selectedStock.factorScores.momentum],
+                ["量能", selectedStock.factorScores.volume],
+                ["买点", selectedStock.factorScores.timing],
+                ["风控", selectedStock.factorScores.risk],
+              ] as const).map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}<b>{value}</b></span>
+                  <i><em style={{ width: `${value}%` }} /></i>
+                </div>
+              ))}
+            </div>
             <div className="indicator-grid">
               <div><Gauge size={15} /><small>RSI (14)</small><b>{selectedStock.rsi}</b></div>
               <div><BarChart3 size={15} /><small>成交量比</small><b>{selectedStock.volumeRatio}x</b></div>
+              <div><TrendingUp size={15} /><small>MACD / Signal</small><b>{selectedStock.macd} / {selectedStock.macdSignal}</b></div>
+              <div><Activity size={15} /><small>MA5乖离率</small><b>{selectedStock.bias5}%</b></div>
+              <div><ShieldAlert size={15} /><small>ATR波动率</small><b>{selectedStock.atrPercent}%</b></div>
+              <div><Target size={15} /><small>风险收益比</small><b>{selectedStock.riskReward}:1</b></div>
               <div><Target size={15} /><small>研究目标</small><b>{selectedStock.target}</b></div>
               <div><ShieldAlert size={15} /><small>失效参考</small><b>{selectedStock.stopLoss}</b></div>
             </div>
             <div className="risk-note"><Info size={15} /><span>{selectedStock.risk}</span></div>
             <div className="strategy-rule">
               <CheckCircle2 size={16} />
-              <span>规则：趋势 + 动量 + 量能 + 超买惩罚；无未来数据，信号按收盘价计算。</span>
+              <span>硬规则：RSI &gt; 80 或 MA5乖离 &gt; 5% 时禁止买入；优先缩量回调，信号仅使用当日及此前数据。</span>
             </div>
           </div>
         </div>

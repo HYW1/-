@@ -1,4 +1,20 @@
 export type Market = "US" | "KR" | "CN";
+export type StrategyId = "balanced" | "breakout" | "pullback" | "defensive";
+
+export type StrategyScore = {
+  score: number;
+  signal: "观察" | "偏多" | "强势" | "谨慎";
+  summary: string;
+  blocked: boolean;
+};
+
+export type FactorScores = {
+  trend: number;
+  momentum: number;
+  volume: number;
+  timing: number;
+  risk: number;
+};
 
 export type Candle = {
   date: string;
@@ -58,6 +74,14 @@ export type StockSignal = {
   risk: string;
   rsi: number;
   volumeRatio: number;
+  macd: number;
+  macdSignal: number;
+  bias5: number;
+  atrPercent: number;
+  riskReward: number;
+  factorScores: FactorScores;
+  strategyScores: Record<StrategyId, StrategyScore>;
+  setupTags: string[];
   stopLoss: number;
   target: number;
   candles: Candle[];

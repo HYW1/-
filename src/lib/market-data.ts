@@ -115,6 +115,94 @@ function calculateRsi(candles: Candle[], period = 14) {
   return 100 - 100 / (1 + gains / losses);
 }
 
+function ema(values: number[], period: number) {
+  const multiplier = 2 / (period + 1);
+  const result: number[] = [];
+  values.forEach((value, index) => {
+    result.push(index === 0 ? value : value * multiplier + result[index - 1] * (1 - multiplier));
+  });
+  return result;
+}
+
+function calculateMacd(candles: Candle[]) {
+  const closes = candles.map((item) => item.close);
+  const fast = ema(closes, 12);
+  const slow = ema(closes, 26);
+  const line = fast.map((value, index) => value - slow[index]);
+  const signal = ema(line, 9);
+  return { macd: line.at(-1) ?? 0, signal: signal.at(-1) ?? 0 };
+}
+
+function calculateAtr(candles: Candle[], period = 14) {
+  const ranges = candles.map((item, index) => {
+    const previousClose = candles[Math.max(0, index - 1)].close;
+    return Math.max(
+      item.high - item.low,
+      Math.abs(item.high - previousClose),
+      Math.abs(item.low - previousClose),
+    );
+  });
+  return ranges.slice(-period).reduce((sum, value) => sum + value, 0) / Math.min(period, ranges.length);
+}
+
+function clampScore(value: number) {
+  return Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function signalFromScore(score: number, blocked: boolean): StockSignal["signal"] {
+  if (blocked) return "谨慎";
+  if (score >= 80) return "强势";
+  if (score >= 64) return "偏多";
+  if (score < 40) return "谨慎";
+  return "观察";
+}
+
+function buildStrategyScores(input: {
+  trend: number;
+  momentum: number;
+  volume: number;
+  timing: number;
+  risk: number;
+  blocked: boolean;
+  nearHigh: boolean;
+  healthyPullback: boolean;
+  macdBullish: boolean;
+}) {
+  const weighted = (weights: number[]) => clampScore(
+    input.trend * weights[0]
+    + input.momentum * weights[1]
+    + input.volume * weights[2]
+    + input.timing * weights[3]
+    + input.risk * weights[4],
+  );
+  const raw = {
+    balanced: weighted([0.3, 0.25, 0.18, 0.17, 0.1]),
+    breakout: weighted([0.35, 0.3, 0.22, 0.08, 0.05])
+      + (input.nearHigh ? 8 : -5)
+      + (input.macdBullish ? 4 : -4),
+    pullback: weighted([0.28, 0.12, 0.18, 0.32, 0.1])
+      + (input.healthyPullback ? 14 : -7),
+    defensive: weighted([0.28, 0.12, 0.08, 0.17, 0.35]),
+  };
+  const summaries = {
+    balanced: "趋势、动量、量能、位置与风险均衡加权",
+    breakout: input.nearHigh ? "接近20日高位，等待放量确认突破" : "尚未形成有效突破结构",
+    pullback: input.healthyPullback ? "上升趋势中的缩量回调，符合严进买点" : "回调位置或量能尚未满足严进条件",
+    defensive: "优先低波动、趋势稳定与安全边际",
+  };
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => {
+      const score = input.blocked ? Math.min(59, clampScore(value)) : clampScore(value);
+      return [key, {
+        score,
+        signal: signalFromScore(score, input.blocked),
+        summary: input.blocked ? "触发不追高硬规则，禁止给出买入信号" : summaries[key as keyof typeof summaries],
+        blocked: input.blocked,
+      }];
+    }),
+  ) as StockSignal["strategyScores"];
+}
+
 function marketFromSymbol(symbol: string): Market {
   if (symbol.endsWith(".KS") || symbol.endsWith(".KQ")) return "KR";
   if (symbol.endsWith(".SS") || symbol.endsWith(".SZ")) return "CN";
@@ -476,22 +564,74 @@ export function analyzeCandles(
   const rsi = calculateRsi(candles);
   const ma20 = last.ma20 ?? last.close;
   const ma5 = last.ma5 ?? last.close;
+  const priorMa20 = candles.at(-6)?.ma20 ?? ma20;
   const momentum20 = (last.close / candles.at(-21)!.close - 1) * 100;
   const change = (last.close / previous.close - 1) * 100;
+  const { macd, signal: macdSignal } = calculateMacd(candles);
+  const atr = calculateAtr(candles);
+  const atrPercent = (atr / last.close) * 100;
+  const bias5 = ((last.close / ma5) - 1) * 100;
+  const recentHigh = Math.max(...candles.slice(-21, -1).map((item) => item.high));
+  const recentLow = Math.min(...candles.slice(-11).map((item) => item.low));
+  const nearHigh = last.close >= recentHigh * 0.98;
+  const macdBullish = macd > macdSignal;
+  const healthyPullback = ma5 > ma20
+    && last.close >= ma20
+    && change <= 1
+    && change >= -3
+    && volumeRatio < 1
+    && Math.abs(bias5) <= 3;
+  const blocked = rsi > 80 || bias5 > 5;
 
-  let score = 50;
-  score += last.close > ma20 ? 14 : -14;
-  score += ma5 > ma20 ? 10 : -8;
-  score += Math.max(-12, Math.min(12, momentum20 * 0.8));
-  score += volumeRatio > 1.15 && change > 0 ? 8 : volumeRatio > 1.8 && change < 0 ? -8 : 0;
-  score += rsi >= 45 && rsi <= 68 ? 7 : rsi > 78 ? -9 : 0;
-  score = Math.round(Math.max(10, Math.min(92, score)));
-
-  const signal = score >= 78 ? "强势" : score >= 64 ? "偏多" : score < 42 ? "谨慎" : "观察";
+  const trend = clampScore(
+    (last.close > ma20 ? 35 : 8)
+    + (ma5 > ma20 ? 25 : 5)
+    + (ma20 > priorMa20 ? 25 : 5)
+    + (nearHigh ? 15 : 7),
+  );
+  const momentum = clampScore(
+    45
+    + Math.max(-25, Math.min(25, momentum20 * 1.5))
+    + (macdBullish ? 17 : -10)
+    + (rsi >= 45 && rsi <= 70 ? 10 : rsi > 80 ? -30 : 0),
+  );
+  const volume = clampScore(change >= 0
+    ? (volumeRatio >= 1.15 && volumeRatio <= 2.5 ? 88 : volumeRatio > 2.5 ? 62 : 55)
+    : (volumeRatio < 0.9 ? 82 : volumeRatio > 1.5 ? 20 : 48));
+  const timing = clampScore(
+    (Math.abs(bias5) <= 2 ? 88 : Math.abs(bias5) <= 5 ? 62 : 12)
+    + (rsi >= 42 && rsi <= 65 ? 8 : rsi > 80 ? -35 : 0),
+  );
+  const riskScore = clampScore(92 - atrPercent * 12 + (last.close > ma20 ? 8 : -15));
+  const factorScores = { trend, momentum, volume, timing, risk: riskScore };
+  const strategyScores = buildStrategyScores({
+    ...factorScores,
+    blocked,
+    nearHigh,
+    healthyPullback,
+    macdBullish,
+  });
+  const { score, signal } = strategyScores.balanced;
   const reasons = [
     last.close > ma20 ? "价格站上20日均线" : "价格位于20日均线下方",
-    ma5 > ma20 ? "短期趋势向上" : "短期趋势偏弱",
-    volumeRatio > 1.15 ? `量比 ${volumeRatio.toFixed(1)}x` : "成交量温和",
+    macdBullish ? "MACD位于信号线上方" : "MACD动能尚弱",
+    healthyPullback ? "出现缩量回调结构" : volumeRatio > 1.15 ? `量比 ${volumeRatio.toFixed(1)}x` : "量能温和",
+  ];
+  const stopCandidates = [
+    ma20 * 0.98,
+    recentLow * 0.99,
+    last.close - atr * 2,
+  ].filter((value) => value > 0 && value < last.close);
+  const stopLoss = stopCandidates.length
+    ? Math.max(...stopCandidates)
+    : last.close * 0.94;
+  const target = Math.max(recentHigh, last.close + (last.close - stopLoss) * 2);
+  const riskReward = (target - last.close) / Math.max(last.close - stopLoss, last.close * 0.001);
+  const setupTags = [
+    ma5 > ma20 && ma20 > priorMa20 ? "多头排列" : "趋势待确认",
+    macdBullish ? "MACD多头" : "MACD空头",
+    healthyPullback ? "缩量回调" : nearHigh ? "临近突破" : "区间运行",
+    blocked ? "禁止追高" : "未触发硬限制",
   ];
 
   return {
@@ -503,11 +643,25 @@ export function analyzeCandles(
     score,
     signal,
     reason: reasons.join(" · "),
-    risk: rsi > 72 ? "RSI偏热，避免追高" : last.close < ma20 ? "趋势未确认，控制仓位" : "跌破20日线视为信号失效",
+    risk: blocked
+      ? `触发硬规则：${rsi > 80 ? "RSI > 80" : "MA5乖离率 > 5%"}，当前禁止追高`
+      : rsi > 72
+        ? "RSI偏热，等待回调而非追价"
+        : last.close < ma20
+          ? "趋势未确认，控制仓位"
+          : "跌破动态止损位视为信号失效",
     rsi: round(rsi, 1),
     volumeRatio: round(volumeRatio, 1),
-    stopLoss: round(last.close * 0.94),
-    target: round(last.close * (1 + Math.max(0.06, Math.min(0.14, momentum20 / 100 + 0.06)))),
+    macd: round(macd, 3),
+    macdSignal: round(macdSignal, 3),
+    bias5: round(bias5, 1),
+    atrPercent: round(atrPercent, 1),
+    riskReward: round(riskReward, 1),
+    factorScores,
+    strategyScores,
+    setupTags,
+    stopLoss: round(stopLoss),
+    target: round(target),
     candles: candles.slice(-45),
     source,
     asOf: last.date,
