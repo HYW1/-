@@ -142,10 +142,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
   useEffect(() => {
     const value = query.trim();
-    if (!value) {
-      setSuggestions([]);
-      return;
-    }
+    if (!value) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setSearching(true);
@@ -243,6 +240,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
+              if (!event.target.value.trim()) setSuggestions([]);
               setError("");
             }}
             placeholder="输入名称或代码，如 茅台 / 三星 / NVDA"
