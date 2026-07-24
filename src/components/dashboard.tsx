@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -31,7 +31,13 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import type { Candle, DashboardData, Market, StockSignal } from "@/lib/types";
+import type {
+  Candle,
+  DashboardData,
+  Market,
+  StockSearchResult,
+  StockSignal,
+} from "@/lib/types";
 
 const marketNames: Record<Market, string> = { US: "美股", KR: "韩股", CN: "A股" };
 const marketColors: Record<Market, string> = {
@@ -122,7 +128,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [selectedStock, setSelectedStock] = useState<StockSignal>(initialData.picks[0]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState<StockSearchResult[]>([]);
   const [error, setError] = useState("");
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [toast, setToast] = useState("");
 
   const market = data.markets.find((item) => item.market === selectedMarket) ?? data.markets[0];
   const visiblePicks = useMemo(
@@ -130,22 +140,63 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
     [data.picks, selectedMarket],
   );
 
-  async function searchStock(event: FormEvent) {
-    event.preventDefault();
-    if (!query.trim()) return;
+  useEffect(() => {
+    const value = query.trim();
+    if (!value) {
+      setSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setSearching(true);
+      try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(value)}`, {
+          signal: controller.signal,
+        });
+        setSuggestions(response.ok ? await response.json() : []);
+      } catch (searchError) {
+        if (!(searchError instanceof DOMException && searchError.name === "AbortError")) {
+          setSuggestions([]);
+        }
+      } finally {
+        setSearching(false);
+      }
+    }, 220);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  async function runAnalysis(value: string) {
+    if (!value.trim()) return;
     setLoading(true);
     setError("");
+    setSuggestions([]);
     try {
-      const response = await fetch(`/api/analyze?symbol=${encodeURIComponent(query.trim())}`);
+      const response = await fetch(`/api/analyze?symbol=${encodeURIComponent(value.trim())}`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "分析失败");
       setSelectedStock(result as StockSignal);
       setSelectedMarket((result as StockSignal).market);
+      setQuery((result as StockSignal).symbol);
+      document.querySelector("#analysis")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "分析失败");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function searchStock(event: FormEvent) {
+    event.preventDefault();
+    await runAnalysis(suggestions[0]?.symbol ?? query);
   }
 
   return (
@@ -165,7 +216,18 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <span className={`status ${data.mode}`}>
             <i /> {data.mode === "live" ? "数据在线" : "缓存模式"}
           </span>
-          <button className="icon-button" aria-label="提醒"><Bell size={18} /></button>
+          <button
+            className={`icon-button ${alertsEnabled ? "enabled" : ""}`}
+            aria-label="每日信号提醒"
+            aria-pressed={alertsEnabled}
+            onClick={() => {
+              const enabled = !alertsEnabled;
+              setAlertsEnabled(enabled);
+              setToast(enabled ? "已开启本机每日信号提醒" : "已关闭每日信号提醒");
+            }}
+          >
+            <Bell size={18} />
+          </button>
         </div>
       </header>
 
@@ -179,13 +241,35 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <Search size={20} />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索股票代码，如 NVDA / 005930.KS / 600519.SS"
-            aria-label="股票代码"
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setError("");
+            }}
+            placeholder="输入名称或代码，如 茅台 / 三星 / NVDA"
+            aria-label="股票名称或代码"
+            autoComplete="off"
           />
           <button disabled={loading}>
             {loading ? <LoaderCircle className="spin" size={18} /> : "立即分析"}
           </button>
+          {(suggestions.length > 0 || searching) && (
+            <div className="search-suggestions">
+              {searching && suggestions.length === 0 ? (
+                <div className="suggestion-loading"><LoaderCircle className="spin" size={14} />正在搜索全球市场…</div>
+              ) : suggestions.map((item) => (
+                <button
+                  type="button"
+                  className="suggestion-row"
+                  key={item.symbol}
+                  onClick={() => runAnalysis(item.symbol)}
+                >
+                  <span className={`market-pill market-${item.market.toLowerCase()}`}>{marketNames[item.market]}</span>
+                  <span><strong>{item.name}</strong><small>{item.symbol} · {item.exchange}</small></span>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+            </div>
+          )}
           {error && <div className="search-error">{error}</div>}
         </form>
       </section>
@@ -371,6 +455,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
         <div><strong>MARKET PULSE</strong><span>Research, not promises.</span></div>
         <p>仅供学习与研究，不构成投资建议。行情可能延迟，请在交易前通过持牌数据源核验。</p>
       </footer>
+      {toast && <div className="toast"><CheckCircle2 size={16} />{toast}</div>}
     </main>
   );
 }

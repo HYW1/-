@@ -5,20 +5,42 @@ import type {
   Market,
   MarketSnapshot,
   StockFlow,
+  StockSearchResult,
   StockSignal,
 } from "./types";
 
-const UNIVERSE = [
-  { symbol: "NVDA", name: "NVIDIA", market: "US" as const },
-  { symbol: "MSFT", name: "Microsoft", market: "US" as const },
-  { symbol: "AVGO", name: "Broadcom", market: "US" as const },
-  { symbol: "005930.KS", name: "Samsung Elec.", market: "KR" as const },
-  { symbol: "000660.KS", name: "SK Hynix", market: "KR" as const },
-  { symbol: "207940.KS", name: "Samsung Bio.", market: "KR" as const },
-  { symbol: "600519.SS", name: "贵州茅台", market: "CN" as const },
-  { symbol: "300750.SZ", name: "宁德时代", market: "CN" as const },
-  { symbol: "601138.SS", name: "工业富联", market: "CN" as const },
+const SEARCH_CATALOG = [
+  { symbol: "NVDA", name: "NVIDIA", market: "US" as const, exchange: "NASDAQ", aliases: ["英伟达", "nvidia"] },
+  { symbol: "MSFT", name: "Microsoft", market: "US" as const, exchange: "NASDAQ", aliases: ["微软", "microsoft"] },
+  { symbol: "AVGO", name: "Broadcom", market: "US" as const, exchange: "NASDAQ", aliases: ["博通", "broadcom"] },
+  { symbol: "AAPL", name: "Apple", market: "US" as const, exchange: "NASDAQ", aliases: ["苹果", "apple"] },
+  { symbol: "TSLA", name: "Tesla", market: "US" as const, exchange: "NASDAQ", aliases: ["特斯拉", "tesla"] },
+  { symbol: "AMZN", name: "Amazon", market: "US" as const, exchange: "NASDAQ", aliases: ["亚马逊", "amazon"] },
+  { symbol: "META", name: "Meta Platforms", market: "US" as const, exchange: "NASDAQ", aliases: ["脸书", "meta"] },
+  { symbol: "GOOGL", name: "Alphabet", market: "US" as const, exchange: "NASDAQ", aliases: ["谷歌", "google", "alphabet"] },
+  { symbol: "005930.KS", name: "Samsung Electronics", market: "KR" as const, exchange: "KOSPI", aliases: ["三星电子", "三星", "samsung", "삼성전자"] },
+  { symbol: "000660.KS", name: "SK Hynix", market: "KR" as const, exchange: "KOSPI", aliases: ["SK海力士", "海力士", "sk hynix", "에스케이하이닉스"] },
+  { symbol: "207940.KS", name: "Samsung Biologics", market: "KR" as const, exchange: "KOSPI", aliases: ["三星生物", "samsung biologics", "삼성바이오로직스"] },
+  { symbol: "035420.KS", name: "NAVER", market: "KR" as const, exchange: "KOSPI", aliases: ["韩国naver", "네이버"] },
+  { symbol: "005380.KS", name: "Hyundai Motor", market: "KR" as const, exchange: "KOSPI", aliases: ["现代汽车", "hyundai", "현대차"] },
+  { symbol: "373220.KS", name: "LG Energy Solution", market: "KR" as const, exchange: "KOSPI", aliases: ["LG新能源", "lg energy", "엘지에너지솔루션"] },
+  { symbol: "600519.SS", name: "贵州茅台", market: "CN" as const, exchange: "上交所", aliases: ["茅台", "贵州茅台"] },
+  { symbol: "300750.SZ", name: "宁德时代", market: "CN" as const, exchange: "深交所", aliases: ["宁德", "宁德时代", "catl"] },
+  { symbol: "601138.SS", name: "工业富联", market: "CN" as const, exchange: "上交所", aliases: ["富士康", "工业富联"] },
+  { symbol: "002594.SZ", name: "比亚迪", market: "CN" as const, exchange: "深交所", aliases: ["比亚迪", "byd"] },
+  { symbol: "000333.SZ", name: "美的集团", market: "CN" as const, exchange: "深交所", aliases: ["美的", "美的集团"] },
+  { symbol: "601318.SS", name: "中国平安", market: "CN" as const, exchange: "上交所", aliases: ["平安", "中国平安"] },
+  { symbol: "601398.SS", name: "工商银行", market: "CN" as const, exchange: "上交所", aliases: ["工行", "工商银行"] },
+  { symbol: "688981.SS", name: "中芯国际", market: "CN" as const, exchange: "科创板", aliases: ["中芯", "中芯国际", "smic"] },
 ];
+
+const DAILY_SYMBOLS = new Set([
+  "NVDA", "MSFT", "AVGO",
+  "005930.KS", "000660.KS", "207940.KS",
+  "600519.SS", "300750.SZ", "601138.SS",
+]);
+
+const UNIVERSE = SEARCH_CATALOG.filter((item) => DAILY_SYMBOLS.has(item.symbol));
 
 const BENCHMARKS = [
   {
@@ -97,6 +119,109 @@ function marketFromSymbol(symbol: string): Market {
   if (symbol.endsWith(".KS") || symbol.endsWith(".KQ")) return "KR";
   if (symbol.endsWith(".SS") || symbol.endsWith(".SZ")) return "CN";
   return "US";
+}
+
+function normalizeSymbolInput(value: string) {
+  let symbol = value.trim().toUpperCase().replaceAll(" ", "");
+  if (/^(SH|SS)\d{6}$/.test(symbol)) symbol = `${symbol.slice(2)}.SS`;
+  if (/^SZ\d{6}$/.test(symbol)) symbol = `${symbol.slice(2)}.SZ`;
+  if (/^(KR|KOSPI):?\d{6}$/.test(symbol)) symbol = `${symbol.slice(-6)}.KS`;
+  if (symbol.endsWith(".SH")) symbol = `${symbol.slice(0, -3)}.SS`;
+  return symbol;
+}
+
+function catalogResult(item: (typeof SEARCH_CATALOG)[number]): StockSearchResult {
+  return {
+    symbol: item.symbol,
+    name: item.name,
+    market: item.market,
+    exchange: item.exchange,
+  };
+}
+
+type YahooSearchPayload = {
+  quotes?: Array<{
+    symbol?: string;
+    shortname?: string;
+    longname?: string;
+    quoteType?: string;
+    exchDisp?: string;
+    exchange?: string;
+  }>;
+};
+
+export async function searchStocks(rawQuery: string): Promise<StockSearchResult[]> {
+  const query = rawQuery.trim();
+  if (!query) return [];
+  const normalized = normalizeSymbolInput(query);
+  const lower = query.toLocaleLowerCase();
+  const local = SEARCH_CATALOG.filter((item) => {
+    const base = item.symbol.split(".")[0];
+    return item.symbol === normalized
+      || base === normalized
+      || item.name.toLocaleLowerCase().includes(lower)
+      || item.aliases.some((alias) => alias.toLocaleLowerCase().includes(lower));
+  }).map(catalogResult);
+
+  if (/^\d{6}$/.test(normalized) && local.length === 0) {
+    const suffix = /^[569]/.test(normalized) ? ".SS" : ".SZ";
+    local.push({
+      symbol: `${normalized}${suffix}`,
+      name: normalized,
+      market: "CN",
+      exchange: suffix === ".SS" ? "上交所" : "深交所",
+    });
+  }
+
+  if (!/^[A-Z0-9^.-]+$/i.test(query)) return local.slice(0, 8);
+
+  try {
+    const url = new URL("https://query1.finance.yahoo.com/v1/finance/search");
+    url.searchParams.set("q", normalized);
+    url.searchParams.set("quotesCount", "8");
+    url.searchParams.set("newsCount", "0");
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 MarketPulse/1.0" },
+      next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return local.slice(0, 8);
+    const payload = (await response.json()) as YahooSearchPayload;
+    const remote = (payload.quotes ?? [])
+      .filter((quote) => quote.symbol && ["EQUITY", "ETF"].includes(quote.quoteType ?? ""))
+      .map((quote): StockSearchResult => ({
+        symbol: quote.symbol!,
+        name: quote.longname ?? quote.shortname ?? quote.symbol!,
+        market: marketFromSymbol(quote.symbol!),
+        exchange: quote.exchDisp ?? quote.exchange ?? "",
+      }));
+    return [...local, ...remote]
+      .filter((item, index, values) => values.findIndex((candidate) => candidate.symbol === item.symbol) === index)
+      .slice(0, 8);
+  } catch {
+    return local.slice(0, 8);
+  }
+}
+
+async function resolveStockQuery(rawQuery: string) {
+  const normalized = normalizeSymbolInput(rawQuery);
+  const matches = await searchStocks(rawQuery);
+  const exact = matches.find((item) =>
+    item.symbol === normalized
+    || item.symbol.split(".")[0] === normalized
+    || item.name.toLocaleLowerCase() === rawQuery.trim().toLocaleLowerCase(),
+  );
+  if (exact) return exact;
+  if (matches[0]) return matches[0];
+  if (/^[A-Z0-9^.-]{1,20}$/.test(normalized)) {
+    return {
+      symbol: normalized,
+      name: normalized,
+      market: marketFromSymbol(normalized),
+      exchange: "",
+    } satisfies StockSearchResult;
+  }
+  throw new Error("未找到匹配股票");
 }
 
 function mockCandles(seedValue: number, base: number): Candle[] {
@@ -516,16 +641,14 @@ export async function getDashboard(): Promise<DashboardData> {
 }
 
 export async function analyzeSymbol(rawSymbol: string): Promise<StockSignal> {
-  const symbol = rawSymbol.trim().toUpperCase();
-  if (!/^[A-Z0-9^.-]{1,20}$/.test(symbol)) throw new Error("股票代码格式无效");
-  const known = UNIVERSE.find((item) => item.symbol === symbol);
-  const market = known?.market ?? marketFromSymbol(symbol);
+  const resolved = await resolveStockQuery(rawSymbol);
+  const { symbol, market } = resolved;
   const [candles, flow] = await Promise.all([
     fetchCandles(symbol),
     fetchStockFlow(symbol, market).catch(() => undefined),
   ]);
   return {
-    ...analyzeCandles(symbol, known?.name ?? symbol, market, candles),
+    ...analyzeCandles(symbol, resolved.name, market, candles),
     flow,
   };
 }

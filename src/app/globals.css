@@ -56,6 +56,7 @@ nav a.active::after { background: var(--green); bottom: 0; content: ""; height: 
 .status i { background: #f1c95d; border-radius: 50%; height: 6px; width: 6px; }
 .status.live i { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .icon-button { align-items: center; background: transparent; border: 1px solid var(--line); cursor: pointer; display: flex; height: 32px; justify-content: center; width: 32px; }
+.icon-button.enabled { background: rgba(187,242,74,.1); border-color: var(--green); color: var(--green); }
 
 .hero {
   align-items: end;
@@ -75,9 +76,15 @@ h1 span { color: #758076; }
 .search-box svg { color: #7a847b; flex: none; }
 .search-box input { background: transparent; border: 0; color: white; flex: 1; font-size: 13px; outline: 0; min-width: 0; }
 .search-box input::placeholder { color: #606860; }
-.search-box button { align-items: center; background: var(--green); border: 0; color: #10130f; cursor: pointer; display: flex; font-size: 12px; font-weight: 800; height: 42px; justify-content: center; min-width: 94px; padding: 0 16px; }
-.search-box button:disabled { opacity: .6; }
+.search-box > button { align-items: center; background: var(--green); border: 0; color: #10130f; cursor: pointer; display: flex; font-size: 12px; font-weight: 800; height: 42px; justify-content: center; min-width: 94px; padding: 0 16px; }
+.search-box > button:disabled { opacity: .6; }
 .search-error { color: #ff9696; font-size: 11px; left: 0; position: absolute; top: calc(100% + 8px); }
+.search-suggestions { background: #111512; border: 1px solid #343d35; box-shadow: 0 18px 50px rgba(0,0,0,.55); left: -1px; max-height: 330px; overflow-y: auto; position: absolute; right: -1px; top: calc(100% + 7px); z-index: 30; }
+.suggestion-row { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 11px; padding: 11px 13px; text-align: left; width: 100%; }
+.suggestion-row:hover { background: #192019; }
+.suggestion-row > span:nth-child(2) { display: flex; flex: 1; flex-direction: column; }
+.suggestion-row strong { font-size: 11px; }.suggestion-row small { color: var(--muted); font-family: var(--font-mono); font-size: 8px; margin-top: 3px; }
+.suggestion-loading { align-items: center; color: var(--muted); display: flex; font-size: 10px; gap: 8px; padding: 14px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -157,6 +164,8 @@ h1 span { color: #758076; }
 .method-items > div { border-left: 1px solid var(--line); padding-left: 20px; }.method-items span { color: var(--green); font-family: var(--font-mono); font-size: 9px; }.method-items strong { display: block; font-size: 14px; margin: 11px 0 8px; }.method-items p { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 0; }
 footer { align-items: center; color: var(--muted); display: flex; font-size: 9px; justify-content: space-between; margin: auto; max-width: 1240px; padding: 28px 0 38px; }
 footer > div { display: flex; flex-direction: column; gap: 4px; }footer strong { color: white; font-size: 11px; letter-spacing: .1em; }footer p { margin: 0; }
+.toast { align-items: center; background: #172016; border: 1px solid #4d6247; bottom: 24px; box-shadow: 0 14px 40px rgba(0,0,0,.5); color: #dce7dc; display: flex; font-size: 11px; gap: 8px; padding: 12px 15px; position: fixed; right: 24px; z-index: 50; }
+.toast svg { color: var(--green); }
 
 @media (max-width: 900px) {
   .topbar { padding: 0 18px; }.topbar nav { display: none; }
@@ -167,7 +176,7 @@ footer > div { display: flex; flex-direction: column; gap: 4px; }footer strong {
 }
 @media (max-width: 600px) {
   .status { display: none; }h1 { font-size: 50px; }.hero { gap: 28px; }
-  .search-box { align-items: stretch; flex-wrap: wrap; }.search-box input { width: calc(100% - 40px); }.search-box button { flex: 1 0 100%; }
+  .search-box { align-items: stretch; flex-wrap: wrap; }.search-box input { width: calc(100% - 40px); }.search-box > button { flex: 1 0 100%; }
   .flow-panel, .picks-panel, .stock-panel { padding: 17px; }.source-chip { display: none; }.metric-row > div { padding: 0 8px; }
   .stock-title { align-items: start; gap: 20px; }.big-score { font-size: 32px; }.signal-summary > div:last-child { display: none; }
   .chart-card-head span:last-child { display: none; }.method-items { grid-template-columns: 1fr; }.method-items > div { padding-bottom: 14px; }

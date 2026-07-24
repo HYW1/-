@@ -72,3 +72,10 @@ export type DashboardData = {
   markets: MarketSnapshot[];
   picks: StockSignal[];
 };
+
+export type StockSearchResult = {
+  symbol: string;
+  name: string;
+  market: Market;
+  exchange: string;
+};
