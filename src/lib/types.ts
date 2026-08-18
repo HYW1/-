@@ -103,11 +103,21 @@ export type StockSignal = {
   flow?: StockFlow;
 };
 
+export type DailyScreen = {
+  asOf: string;
+  regime: "进攻" | "均衡" | "防守";
+  thesis: string;
+  screenedCount: number;
+  recommendedCount: number;
+  sources: string[];
+};
+
 export type DashboardData = {
   updatedAt: string;
   mode: "live" | "fallback";
   markets: MarketSnapshot[];
   picks: StockSignal[];
+  dailyScreen: DailyScreen;
 };
 
 export type StockSearchResult = {

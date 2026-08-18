@@ -147,7 +147,16 @@ h1 span { color: #758076; }
 .screener-stats > div { background: #0c100d; border: 1px solid var(--line); display: flex; flex-direction: column; min-width: 96px; padding: 11px 14px; }
 .screener-stats b { color: var(--green); font-family: var(--font-mono); font-size: 19px; }
 .screener-stats small { color: var(--muted); font-size: 8px; margin-top: 3px; }
-.recommendation-rule { align-items: center; background: linear-gradient(90deg, rgba(187, 242, 74, .08), rgba(187, 242, 74, .015)); border: 1px solid rgba(187, 242, 74, .18); display: grid; gap: 14px; grid-template-columns: auto 1fr auto; margin-top: 21px; padding: 11px 13px; }
+.recommendation-rule { align-items: center; background: linear-gradient(90deg, rgba(187, 242, 74, .08), rgba(187, 242, 74, .015)); border: 1px solid rgba(187, 242, 74, .18); display: grid; gap: 14px; grid-template-columns: auto 1fr auto; margin-top: 12px; padding: 11px 13px; }
+.daily-screen-banner { background: linear-gradient(120deg, rgba(255, 138, 101, .1), rgba(187, 242, 74, .05)); border: 1px solid rgba(255, 138, 101, .22); display: grid; gap: 7px; margin-top: 18px; padding: 13px 14px; }
+.daily-screen-banner > div { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
+.daily-screen-banner > div > span { color: #ffb092; font-family: var(--font-mono); font-size: 9px; letter-spacing: .04em; }
+.daily-screen-banner b { border: 1px solid rgba(255,138,101,.25); color: #ff8a65; font-size: 9px; padding: 4px 7px; }
+.daily-screen-banner .regime-进攻 { color: var(--green); border-color: rgba(187,242,74,.3); }
+.daily-screen-banner .regime-防守 { color: #ff8c8c; border-color: rgba(255,107,107,.28); }
+.daily-screen-banner .regime-均衡 { color: var(--blue); border-color: rgba(90,185,255,.28); }
+.daily-screen-banner p { color: #d5ddd5; font-size: 11px; line-height: 1.6; margin: 0; }
+.daily-screen-banner small { color: #70806f; font-size: 8px; }
 .recommendation-rule > span { align-items: center; color: #d8f4a0; display: flex; font-size: 10px; font-weight: 700; gap: 7px; white-space: nowrap; }
 .recommendation-rule > div { display: flex; gap: 6px; }
 .recommendation-rule i { background: rgba(187, 242, 74, .08); border: 1px solid rgba(187, 242, 74, .12); color: #9ca990; font-size: 8px; font-style: normal; padding: 5px 7px; }
@@ -290,6 +299,7 @@ footer > div { display: flex; flex-direction: column; gap: 4px; }footer strong {
   .screener-grid { grid-template-columns: repeat(2, 1fr); }
   .recommendation-rule { align-items: start; grid-template-columns: 1fr; }
   .recommendation-rule small { text-align: left; }
+  .daily-screen-banner > div { align-items: start; flex-direction: column; gap: 8px; }
   .filter-select-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quant-rule-groups { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .method { gap: 35px; grid-template-columns: 1fr; padding-left: 18px; padding-right: 18px; }

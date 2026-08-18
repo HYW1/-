@@ -1,5 +1,6 @@
 import type {
   Candle,
+  DailyScreen,
   DashboardData,
   FlowPoint,
   Market,
@@ -8,10 +9,37 @@ import type {
   StockFlow,
   StockSearchResult,
   StockSignal,
+  StrategyId,
 } from "./types";
 import { calculateConsecutiveUpDays } from "./quant-rules";
 
 const SEARCH_CATALOG = [
+  // A股优先：固定观察池 + 高流动性蓝筹，便于每日按行情重排
+  { symbol: "600276.SS", name: "恒瑞医药", market: "CN" as const, exchange: "上交所", aliases: ["恒瑞", "恒瑞医药"] },
+  { symbol: "600519.SS", name: "贵州茅台", market: "CN" as const, exchange: "上交所", aliases: ["茅台", "贵州茅台"] },
+  { symbol: "300750.SZ", name: "宁德时代", market: "CN" as const, exchange: "深交所", aliases: ["宁德", "宁德时代", "catl"] },
+  { symbol: "000333.SZ", name: "美的集团", market: "CN" as const, exchange: "深交所", aliases: ["美的", "美的集团"] },
+  { symbol: "600660.SS", name: "福耀玻璃", market: "CN" as const, exchange: "上交所", aliases: ["福耀", "福耀玻璃"] },
+  { symbol: "600941.SS", name: "中国移动", market: "CN" as const, exchange: "上交所", aliases: ["移动", "中国移动"] },
+  { symbol: "601318.SS", name: "中国平安", market: "CN" as const, exchange: "上交所", aliases: ["平安", "中国平安"] },
+  { symbol: "601398.SS", name: "工商银行", market: "CN" as const, exchange: "上交所", aliases: ["工行", "工商银行"] },
+  { symbol: "600036.SS", name: "招商银行", market: "CN" as const, exchange: "上交所", aliases: ["招行", "招商银行"] },
+  { symbol: "000858.SZ", name: "五粮液", market: "CN" as const, exchange: "深交所", aliases: ["五粮液"] },
+  { symbol: "002594.SZ", name: "比亚迪", market: "CN" as const, exchange: "深交所", aliases: ["比亚迪", "byd"] },
+  { symbol: "601138.SS", name: "工业富联", market: "CN" as const, exchange: "上交所", aliases: ["富士康", "工业富联"] },
+  { symbol: "688981.SS", name: "中芯国际", market: "CN" as const, exchange: "科创板", aliases: ["中芯", "中芯国际", "smic"] },
+  { symbol: "002475.SZ", name: "立讯精密", market: "CN" as const, exchange: "深交所", aliases: ["立讯", "立讯精密"] },
+  { symbol: "300059.SZ", name: "东方财富", market: "CN" as const, exchange: "深交所", aliases: ["东财", "东方财富"] },
+  { symbol: "601012.SS", name: "隆基绿能", market: "CN" as const, exchange: "上交所", aliases: ["隆基", "隆基绿能"] },
+  { symbol: "603259.SS", name: "药明康德", market: "CN" as const, exchange: "上交所", aliases: ["药明", "药明康德"] },
+  { symbol: "000630.SZ", name: "铜陵有色", market: "CN" as const, exchange: "深交所", aliases: ["铜陵", "铜陵有色"] },
+  { symbol: "601899.SS", name: "紫金矿业", market: "CN" as const, exchange: "上交所", aliases: ["紫金", "紫金矿业"] },
+  { symbol: "600030.SS", name: "中信证券", market: "CN" as const, exchange: "上交所", aliases: ["中信", "中信证券"] },
+  { symbol: "002415.SZ", name: "海康威视", market: "CN" as const, exchange: "深交所", aliases: ["海康", "海康威视"] },
+  { symbol: "000001.SZ", name: "平安银行", market: "CN" as const, exchange: "深交所", aliases: ["平安银行"] },
+  { symbol: "600887.SS", name: "伊利股份", market: "CN" as const, exchange: "上交所", aliases: ["伊利", "伊利股份"] },
+  { symbol: "002714.SZ", name: "牧原股份", market: "CN" as const, exchange: "深交所", aliases: ["牧原", "牧原股份"] },
+  { symbol: "603501.SS", name: "韦尔股份", market: "CN" as const, exchange: "上交所", aliases: ["韦尔", "韦尔股份"] },
   { symbol: "NVDA", name: "NVIDIA", market: "US" as const, exchange: "NASDAQ", aliases: ["英伟达", "nvidia"] },
   { symbol: "MSFT", name: "Microsoft", market: "US" as const, exchange: "NASDAQ", aliases: ["微软", "microsoft"] },
   { symbol: "AVGO", name: "Broadcom", market: "US" as const, exchange: "NASDAQ", aliases: ["博通", "broadcom"] },
@@ -26,19 +54,22 @@ const SEARCH_CATALOG = [
   { symbol: "035420.KS", name: "NAVER", market: "KR" as const, exchange: "KOSPI", aliases: ["韩国naver", "네이버"] },
   { symbol: "005380.KS", name: "Hyundai Motor", market: "KR" as const, exchange: "KOSPI", aliases: ["现代汽车", "hyundai", "현대차"] },
   { symbol: "373220.KS", name: "LG Energy Solution", market: "KR" as const, exchange: "KOSPI", aliases: ["LG新能源", "lg energy", "엘지에너지솔루션"] },
-  { symbol: "600519.SS", name: "贵州茅台", market: "CN" as const, exchange: "上交所", aliases: ["茅台", "贵州茅台"] },
-  { symbol: "300750.SZ", name: "宁德时代", market: "CN" as const, exchange: "深交所", aliases: ["宁德", "宁德时代", "catl"] },
-  { symbol: "601138.SS", name: "工业富联", market: "CN" as const, exchange: "上交所", aliases: ["富士康", "工业富联"] },
-  { symbol: "002594.SZ", name: "比亚迪", market: "CN" as const, exchange: "深交所", aliases: ["比亚迪", "byd"] },
-  { symbol: "000333.SZ", name: "美的集团", market: "CN" as const, exchange: "深交所", aliases: ["美的", "美的集团"] },
-  { symbol: "601318.SS", name: "中国平安", market: "CN" as const, exchange: "上交所", aliases: ["平安", "中国平安"] },
-  { symbol: "601398.SS", name: "工商银行", market: "CN" as const, exchange: "上交所", aliases: ["工行", "工商银行"] },
-  { symbol: "688981.SS", name: "中芯国际", market: "CN" as const, exchange: "科创板", aliases: ["中芯", "中芯国际", "smic"] },
 ];
 
 const UNIVERSE = SEARCH_CATALOG;
 
 const BENCHMARKS = [
+  {
+    market: "CN" as const,
+    label: "A股",
+    flag: "CN",
+    index: "沪深300",
+    symbol: "000300.SS",
+    flowLabel: "主力资金代理",
+    flowUnit: "亿元",
+    source: "Yahoo Finance · 沪深300量价代理",
+    confidence: "中" as const,
+  },
   {
     market: "US" as const,
     label: "美股",
@@ -59,17 +90,6 @@ const BENCHMARKS = [
     flowLabel: "外资/机构代理",
     flowUnit: "亿韩元",
     source: "Yahoo Finance · KRX 指数代理",
-    confidence: "中" as const,
-  },
-  {
-    market: "CN" as const,
-    label: "A股",
-    flag: "CN",
-    index: "沪深300",
-    symbol: "000300.SS",
-    flowLabel: "主力资金代理",
-    flowUnit: "亿元",
-    source: "Yahoo Finance · 沪深300量价代理",
     confidence: "中" as const,
   },
 ];
@@ -711,6 +731,182 @@ function flowFromCandles(candles: Candle[], market: Market): FlowPoint[] {
   });
 }
 
+function cnYahooSymbol(code: string) {
+  if (/^(5|6|9)/.test(code) || code.startsWith("688")) return `${code}.SS`;
+  return `${code}.SZ`;
+}
+
+function isTradableCnName(name: string, code: string) {
+  if (!/^\d{6}$/.test(code)) return false;
+  if (/^(8|4|9)/.test(code)) return false;
+  if (name.includes("ST") || name.startsWith("N") || name.startsWith("C")) return false;
+  return true;
+}
+
+type EastmoneyListRow = {
+  f12?: string;
+  f14?: string;
+  f2?: number;
+  f3?: number;
+  f62?: number;
+};
+
+async function fetchEastmoneyCnBoard(fid: "f62" | "f3", size = 40): Promise<EastmoneyListRow[]> {
+  const url = new URL("https://push2delay.eastmoney.com/api/qt/clist/get");
+  url.searchParams.set("pn", "1");
+  url.searchParams.set("pz", String(size));
+  url.searchParams.set("po", "1");
+  url.searchParams.set("np", "1");
+  url.searchParams.set("fltt", "2");
+  url.searchParams.set("invt", "2");
+  url.searchParams.set("fid", fid);
+  url.searchParams.set("fs", "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23");
+  url.searchParams.set("fields", "f12,f14,f2,f3,f62");
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      Referer: "https://quote.eastmoney.com/",
+      "User-Agent": "Mozilla/5.0 MarketPulse/1.0",
+    },
+    next: { revalidate: 900 },
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) throw new Error(`东方财富榜单返回 ${response.status}`);
+  const payload = await response.json() as { data?: { diff?: EastmoneyListRow[] } };
+  return payload.data?.diff ?? [];
+}
+
+export async function fetchDynamicCnCandidates(limit = 18): Promise<StockSearchResult[]> {
+  try {
+    const [inflow, gainers] = await Promise.all([
+      fetchEastmoneyCnBoard("f62", 50),
+      fetchEastmoneyCnBoard("f3", 40),
+    ]);
+    const merged = [...inflow, ...gainers];
+    const results: StockSearchResult[] = [];
+    for (const row of merged) {
+      const code = row.f12 ?? "";
+      const name = row.f14 ?? code;
+      const change = Number(row.f3 ?? 0);
+      const price = Number(row.f2 ?? 0);
+      if (!isTradableCnName(name, code)) continue;
+      if (!(price > 2)) continue;
+      // 严进：排除涨停附近与极端波动，避免把一日游硬塞进推荐
+      if (Math.abs(change) >= 9.2) continue;
+      const symbol = cnYahooSymbol(code);
+      if (results.some((item) => item.symbol === symbol)) continue;
+      if (SEARCH_CATALOG.some((item) => item.symbol === symbol)) continue;
+      results.push({
+        symbol,
+        name,
+        market: "CN",
+        exchange: symbol.endsWith(".SS") ? "上交所" : "深交所",
+      });
+      if (results.length >= limit) break;
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+function detectMarketRegime(markets: MarketSnapshot[]): DailyScreen["regime"] {
+  const cn = markets.find((item) => item.market === "CN");
+  if (!cn) return "均衡";
+  if (cn.trend === "in" && cn.change >= 0.35) return "进攻";
+  if (cn.change <= -0.8 || (cn.trend === "out" && cn.change < 0)) return "防守";
+  return "均衡";
+}
+
+function dailyRankScore(pick: StockSignal, regime: DailyScreen["regime"], preferred: StrategyId) {
+  const profile = pick.strategyScores[preferred];
+  let score = profile.score;
+  if (pick.market === "CN") score += 8;
+  if (profile.blocked) score -= 35;
+  if (pick.riskReward >= 2) score += 4;
+  if (pick.quantRules.includes("healthy-pullback")) score += regime === "进攻" ? 4 : 10;
+  if (pick.quantRules.includes("momentum-zone")) score += 5;
+  if (pick.quantRules.includes("low-volatility")) score += regime === "防守" ? 10 : 3;
+  if (pick.quantRules.includes("bullish-stack")) score += regime === "防守" ? 2 : 6;
+  if (pick.quantRules.includes("macd-bullish")) score += 4;
+  if (pick.quantRules.includes("three-up") || pick.quantRules.includes("four-up")) {
+    score += regime === "进攻" ? 7 : 1;
+  }
+  if (pick.quantRules.includes("breakout-20d") || pick.quantRules.includes("volume-breakout")) {
+    score += regime === "进攻" ? 8 : -2;
+  }
+  if (pick.bias5 > 3.5) score -= 6;
+  if (pick.rsi > 72) score -= 5;
+  return score;
+}
+
+function preferredStrategyForRegime(regime: DailyScreen["regime"]): StrategyId {
+  if (regime === "进攻") return "breakout";
+  if (regime === "防守") return "defensive";
+  return "pullback";
+}
+
+function thesisForRegime(regime: DailyScreen["regime"], cn?: MarketSnapshot) {
+  if (regime === "进攻") {
+    return `A股偏强（沪深300 ${cn?.change ?? 0}% · 资金${cn?.trend === "in" ? "流入" : "流出"}），今日优先趋势共振与温和放量，但仍跳过追高票。`;
+  }
+  if (regime === "防守") {
+    return `A股偏弱（沪深300 ${cn?.change ?? 0}%），今日切换防守：优先低波动、缩量回踩和风险收益比，不追连阳末端。`;
+  }
+  return `A股震荡（沪深300 ${cn?.change ?? 0}%），今日按严进策略筛选：偏好缩量回踩、动量适中，RSI/乖离超标直接剔除。`;
+}
+
+export function buildDailyScreen(
+  picks: StockSignal[],
+  markets: MarketSnapshot[],
+  screenedCount: number,
+  sources: string[],
+): { picks: StockSignal[]; dailyScreen: DailyScreen } {
+  const regime = detectMarketRegime(markets);
+  const preferred = preferredStrategyForRegime(regime);
+  const cn = markets.find((item) => item.market === "CN");
+  const ranked = [...picks].sort((left, right) =>
+    dailyRankScore(right, regime, preferred) - dailyRankScore(left, regime, preferred)
+    || right.strategyScores[preferred].score - left.strategyScores[preferred].score,
+  );
+  const recommended = ranked.filter((pick) => {
+    const profile = pick.strategyScores[preferred];
+    return !profile.blocked && profile.score >= 60 && pick.riskReward >= 2;
+  });
+  const cnRecommended = recommended.filter((pick) => pick.market === "CN");
+  const otherRecommended = recommended.filter((pick) => pick.market !== "CN");
+  // 每天输出当日榜：A股优先占位，再补其他市场，保证列表会随行情变化
+  const dailyPicks = [
+    ...cnRecommended.slice(0, 12),
+    ...otherRecommended.slice(0, 6),
+    ...ranked.filter((pick) => !recommended.includes(pick) && pick.market === "CN").slice(0, 4),
+  ].filter((pick, index, values) => values.findIndex((item) => item.symbol === pick.symbol) === index)
+    .slice(0, 18);
+
+  return {
+    picks: dailyPicks.length ? dailyPicks : ranked.slice(0, 12),
+    dailyScreen: {
+      asOf: cnRecommended[0]?.asOf ?? ranked[0]?.asOf ?? new Date().toISOString().slice(0, 10),
+      regime,
+      thesis: thesisForRegime(regime, cn),
+      screenedCount,
+      recommendedCount: recommended.length,
+      sources,
+    },
+  };
+}
+
+async function analyzeUniverseItem(item: StockSearchResult): Promise<StockSignal> {
+  const [candles, flow] = await Promise.all([
+    fetchCandles(item.symbol),
+    fetchStockFlow(item.symbol, item.market).catch(() => undefined),
+  ]);
+  return {
+    ...analyzeCandles(item.symbol, item.name, item.market, candles),
+    flow,
+  };
+}
+
 function snapshotFromCandles(
   benchmark: (typeof BENCHMARKS)[number],
   candles: Candle[],
@@ -731,7 +927,7 @@ function snapshotFromCandles(
 }
 
 export function fallbackDashboard(): DashboardData {
-  const bases = [5750, 3250, 3950];
+  const bases = [3950, 5750, 3250];
   const markets = BENCHMARKS.map((benchmark, index) =>
     snapshotFromCandles(benchmark, mockCandles(130 + index, bases[index])),
   );
@@ -743,17 +939,21 @@ export function fallbackDashboard(): DashboardData {
       item.market === "US" ? 150 + index * 18 : item.market === "KR" ? 70_000 + index * 9_000 : 35 + index * 12,
       440 + index,
     ),
-  ).sort((a, b) => b.score - a.score);
+  );
+  const screened = buildDailyScreen(picks, markets, picks.length, ["演示缓存观察池"]);
   return {
     updatedAt: new Date().toISOString(),
     mode: "fallback",
     markets,
-    picks,
+    ...screened,
   };
 }
 
 export async function getDashboard(): Promise<DashboardData> {
   const fallback = fallbackDashboard();
+  const dynamicCn = await fetchDynamicCnCandidates(18);
+  const universe = [...UNIVERSE, ...dynamicCn]
+    .filter((item, index, values) => values.findIndex((candidate) => candidate.symbol === item.symbol) === index);
   const [marketResults, stockResults] = await Promise.all([
     Promise.allSettled(BENCHMARKS.map(async (benchmark) => {
       const snapshot = snapshotFromCandles(benchmark, await fetchCandles(benchmark.symbol));
@@ -783,16 +983,7 @@ export async function getDashboard(): Promise<DashboardData> {
       }
       return snapshot;
     })),
-    Promise.allSettled(UNIVERSE.map(async (item) => {
-      const [candles, flow] = await Promise.all([
-        fetchCandles(item.symbol),
-        fetchStockFlow(item.symbol, item.market).catch(() => undefined),
-      ]);
-      return {
-        ...analyzeCandles(item.symbol, item.name, item.market, candles),
-        flow,
-      };
-    })),
+    Promise.allSettled(universe.map((item) => analyzeUniverseItem(item))),
   ]);
 
   const markets = marketResults.map((result, index) =>
@@ -801,12 +992,18 @@ export async function getDashboard(): Promise<DashboardData> {
   const livePicks = stockResults.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
   );
+  const analyzed = livePicks.length ? livePicks : fallback.picks;
+  const sources = [
+    "固定A股观察池",
+    ...(dynamicCn.length ? [`东方财富当日主力/涨幅动态补入 ${dynamicCn.length} 只`] : []),
+    "Yahoo Finance 日线严进评分",
+  ];
+  const screened = buildDailyScreen(analyzed, markets, analyzed.length, sources);
   return {
     updatedAt: new Date().toISOString(),
     mode: livePicks.length >= 3 ? "live" : "fallback",
     markets,
-    picks: (livePicks.length ? livePicks : fallback.picks)
-      .sort((a, b) => b.score - a.score),
+    ...screened,
   };
 }
 

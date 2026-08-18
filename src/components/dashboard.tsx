@@ -183,8 +183,8 @@ function KlineChart({ candles }: { candles: Candle[] }) {
 
 export default function Dashboard({ initialData }: { initialData: DashboardData }) {
   const [data] = useState(initialData);
-  const [selectedMarket, setSelectedMarket] = useState<Market>("US");
-  const [screenerMarket, setScreenerMarket] = useState<Market | "ALL">("ALL");
+  const [selectedMarket, setSelectedMarket] = useState<Market>("CN");
+  const [screenerMarket, setScreenerMarket] = useState<Market | "ALL">("CN");
   const [screenerSignal, setScreenerSignal] = useState<ScreenerSignal>("recommended");
   const [selectedQuantRules, setSelectedQuantRules] = useState<QuantRuleId[]>([]);
   const [ruleMatchMode, setRuleMatchMode] = useState<RuleMatchMode>("all");
@@ -192,7 +192,9 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [screenerMinimumScore, setScreenerMinimumScore] = useState(0);
   const [screenerSort, setScreenerSort] = useState<ScreenerSort>("score");
   const [screenerQuery, setScreenerQuery] = useState("");
-  const [selectedStock, setSelectedStock] = useState<StockSignal>(initialData.picks[0]);
+  const [selectedStock, setSelectedStock] = useState<StockSignal>(
+    initialData.picks.find((pick) => pick.market === "CN") ?? initialData.picks[0],
+  );
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyId>("balanced");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -257,12 +259,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       ruleMatchMode,
     ],
   );
-  const strictCandidateCount = useMemo(
-    () => data.picks.filter((pick) =>
-      (screenerMarket === "ALL" || pick.market === screenerMarket)
-      && isStrictCandidate(pick, selectedStrategy)).length,
-    [data.picks, screenerMarket, selectedStrategy],
-  );
   const activeFilterCount = [
     screenerMarket !== "ALL",
     screenerSignal !== "all",
@@ -274,8 +270,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const activeStockScore = selectedStock.strategyScores[selectedStrategy];
 
   function resetScreener() {
-    setScreenerMarket("ALL");
-    setScreenerSignal("all");
+    setScreenerMarket("CN");
+    setScreenerSignal("recommended");
     setSelectedQuantRules([]);
     setRuleMatchMode("all");
     setActiveRulePreset("none");
@@ -526,8 +522,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
 
         <aside className="panel picks-panel" id="signals">
           <div className="panel-head">
-            <div><span className="section-kicker">DAILY SIGNALS</span><h2>今日量化观察</h2></div>
-            <span className="date-tag"><Clock3 size={13} /> {new Date(data.updatedAt).toLocaleDateString("zh-CN")}</span>
+            <div><span className="section-kicker">DAILY SIGNALS</span><h2>今日A股观察</h2></div>
+            <span className="date-tag"><Clock3 size={13} /> {data.dailyScreen.asOf} · {data.dailyScreen.regime}</span>
           </div>
           <div className="strategy-tabs" role="tablist" aria-label="选股策略">
             {strategies.map((strategy) => (
@@ -571,12 +567,22 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <div>
             <span className="section-kicker">SMART SCREENER</span>
             <h2>智能选股中心</h2>
-            <p>先用硬规则排除追高，再按策略、形态和风险收益筛出值得继续研究的候选。</p>
+            <p>默认看 A 股。候选池每日按行情动态补入，再按严进策略重排，不是固定名单。</p>
           </div>
           <div className="screener-stats">
             <div><b>{screenedPicks.length}</b><small>当前结果</small></div>
-            <div><b>{strictCandidateCount}</b><small>符合严选</small></div>
+            <div><b>{data.dailyScreen.recommendedCount}</b><small>今日严选</small></div>
           </div>
+        </div>
+        <div className="daily-screen-banner">
+          <div>
+            <span>今日动态筛选 · {data.dailyScreen.asOf}</span>
+            <b className={`regime-${data.dailyScreen.regime}`}>{data.dailyScreen.regime}市况</b>
+          </div>
+          <p>{data.dailyScreen.thesis}</p>
+          <small>
+            扫描 {data.dailyScreen.screenedCount} 只 · {data.dailyScreen.sources.join(" · ")}
+          </small>
         </div>
         <div className="recommendation-rule">
           <span><BadgeCheck size={16} />严格推荐规则</span>
@@ -594,10 +600,10 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           </div>
           <div className="market-filters">
             {([
+              ["CN", "A股"],
               ["ALL", "全部市场"],
               ["US", "美股"],
               ["KR", "韩股"],
-              ["CN", "A股"],
             ] as const).map(([value, label]) => (
               <button
                 className={screenerMarket === value ? "active" : ""}
