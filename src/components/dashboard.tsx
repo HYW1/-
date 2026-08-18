@@ -17,16 +17,21 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
+  BadgeCheck,
   Bell,
   CheckCircle2,
   ChevronRight,
   Clock3,
   Database,
+  Filter,
   Gauge,
   Info,
   LoaderCircle,
+  RotateCcw,
   Search,
+  SearchX,
   ShieldAlert,
+  SlidersHorizontal,
   Sparkles,
   Target,
   TrendingUp,
@@ -53,6 +58,15 @@ const strategies: Array<{ id: StrategyId; name: string; note: string }> = [
   { id: "pullback", name: "缩量回调", note: "多头趋势中等待低风险回踩" },
   { id: "defensive", name: "低波防守", note: "优先趋势稳定和低ATR标的" },
 ];
+
+type ScreenerSignal = "recommended" | "bullish" | "strong" | "watch" | "cautious" | "all";
+type ScreenerSetup = "all" | "pullback" | "breakout" | "low-volatility";
+type ScreenerSort = "score" | "risk-reward" | "change" | "volatility";
+
+const isStrictCandidate = (pick: StockSignal, strategy: StrategyId) => {
+  const profile = pick.strategyScores[strategy];
+  return !profile.blocked && profile.score >= 64 && pick.riskReward >= 2;
+};
 
 function formatNumber(value: number, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(value);
@@ -134,6 +148,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [data] = useState(initialData);
   const [selectedMarket, setSelectedMarket] = useState<Market>("US");
   const [screenerMarket, setScreenerMarket] = useState<Market | "ALL">("ALL");
+  const [screenerSignal, setScreenerSignal] = useState<ScreenerSignal>("recommended");
+  const [screenerSetup, setScreenerSetup] = useState<ScreenerSetup>("all");
+  const [screenerMinimumScore, setScreenerMinimumScore] = useState(0);
+  const [screenerSort, setScreenerSort] = useState<ScreenerSort>("score");
+  const [screenerQuery, setScreenerQuery] = useState("");
   const [selectedStock, setSelectedStock] = useState<StockSignal>(initialData.picks[0]);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyId>("balanced");
   const [query, setQuery] = useState("");
@@ -154,15 +173,74 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
     [data.picks, selectedMarket, selectedStrategy],
   );
   const screenedPicks = useMemo(
-    () => data.picks
-      .filter((pick) => screenerMarket === "ALL" || pick.market === screenerMarket)
-      .sort((left, right) =>
-        right.strategyScores[selectedStrategy].score - left.strategyScores[selectedStrategy].score,
-      ),
+    () => {
+      const normalizedQuery = screenerQuery.trim().toLocaleLowerCase();
+      const filtered = data.picks.filter((pick) => {
+        const profile = pick.strategyScores[selectedStrategy];
+        const matchesMarket = screenerMarket === "ALL" || pick.market === screenerMarket;
+        const matchesQuery = !normalizedQuery
+          || pick.name.toLocaleLowerCase().includes(normalizedQuery)
+          || pick.symbol.toLocaleLowerCase().includes(normalizedQuery);
+        const matchesSignal = screenerSignal === "all"
+          || (screenerSignal === "recommended" && isStrictCandidate(pick, selectedStrategy))
+          || (screenerSignal === "bullish" && ["强势", "偏多"].includes(profile.signal))
+          || (screenerSignal === "strong" && profile.signal === "强势")
+          || (screenerSignal === "watch" && profile.signal === "观察")
+          || (screenerSignal === "cautious" && profile.signal === "谨慎");
+        const matchesSetup = screenerSetup === "all"
+          || (screenerSetup === "pullback" && pick.setupTags.includes("缩量回调"))
+          || (screenerSetup === "breakout" && pick.setupTags.includes("临近突破"))
+          || (screenerSetup === "low-volatility" && pick.atrPercent <= 3);
+        return matchesMarket
+          && matchesQuery
+          && matchesSignal
+          && matchesSetup
+          && profile.score >= screenerMinimumScore;
+      });
+
+      return filtered.sort((left, right) => {
+        if (screenerSort === "risk-reward") return right.riskReward - left.riskReward;
+        if (screenerSort === "change") return right.change - left.change;
+        if (screenerSort === "volatility") return left.atrPercent - right.atrPercent;
+        return right.strategyScores[selectedStrategy].score
+          - left.strategyScores[selectedStrategy].score;
+      });
+    },
+    [
+      data.picks,
+      screenerMarket,
+      screenerMinimumScore,
+      screenerQuery,
+      screenerSetup,
+      screenerSignal,
+      screenerSort,
+      selectedStrategy,
+    ],
+  );
+  const strictCandidateCount = useMemo(
+    () => data.picks.filter((pick) =>
+      (screenerMarket === "ALL" || pick.market === screenerMarket)
+      && isStrictCandidate(pick, selectedStrategy)).length,
     [data.picks, screenerMarket, selectedStrategy],
   );
+  const activeFilterCount = [
+    screenerMarket !== "ALL",
+    screenerSignal !== "all",
+    screenerSetup !== "all",
+    screenerMinimumScore > 0,
+    Boolean(screenerQuery.trim()),
+  ].filter(Boolean).length;
   const activeStrategy = strategies.find((item) => item.id === selectedStrategy) ?? strategies[0];
   const activeStockScore = selectedStock.strategyScores[selectedStrategy];
+
+  function resetScreener() {
+    setScreenerMarket("ALL");
+    setScreenerSignal("all");
+    setScreenerSetup("all");
+    setScreenerMinimumScore(0);
+    setScreenerSort("score");
+    setScreenerQuery("");
+  }
 
   function showStock(stock: StockSignal) {
     setSelectedStock(stock);
@@ -436,14 +514,27 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <div>
             <span className="section-kicker">SMART SCREENER</span>
             <h2>智能选股中心</h2>
-            <p>按市场与策略对完整候选池重新评分；点击任意股票查看 K 线和详细风控。</p>
+            <p>先用硬规则排除追高，再按策略、形态和风险收益筛出值得继续研究的候选。</p>
           </div>
           <div className="screener-stats">
-            <div><b>{screenedPicks.length}</b><small>候选股票</small></div>
-            <div><b>{screenedPicks.filter((pick) => pick.strategyScores[selectedStrategy].score >= 64).length}</b><small>达到偏多</small></div>
+            <div><b>{screenedPicks.length}</b><small>当前结果</small></div>
+            <div><b>{strictCandidateCount}</b><small>符合严选</small></div>
           </div>
         </div>
-        <div className="screener-toolbar">
+        <div className="recommendation-rule">
+          <span><BadgeCheck size={16} />严格推荐规则</span>
+          <div>
+            <i>策略评分 ≥ 64</i>
+            <i>未触发追高限制</i>
+            <i>风险收益比 ≥ 2:1</i>
+          </div>
+          <small>仅用于缩小研究范围，不代表买入指令</small>
+        </div>
+        <div className="screener-toolbar" aria-label="智能选股筛选器">
+          <div className="filter-title">
+            <span><SlidersHorizontal size={15} />筛选条件</span>
+            {activeFilterCount > 0 && <i>{activeFilterCount} 项已启用</i>}
+          </div>
           <div className="market-filters">
             {([
               ["ALL", "全部市场"],
@@ -460,28 +551,107 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
               </button>
             ))}
           </div>
-          <div className="screener-strategies">
-            <span>当前策略</span>
-            <select
-              value={selectedStrategy}
-              onChange={(event) => setSelectedStrategy(event.target.value as StrategyId)}
-              aria-label="选择选股策略"
-            >
-              {strategies.map((strategy) => (
-                <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
-              ))}
-            </select>
+          <div className="filter-search">
+            <Search size={14} />
+            <input
+              value={screenerQuery}
+              onChange={(event) => setScreenerQuery(event.target.value)}
+              placeholder="搜索名称 / 代码"
+              aria-label="在候选股票中搜索"
+            />
           </div>
+          <div className="filter-select-grid">
+            <label>
+              <span>策略</span>
+              <select
+                value={selectedStrategy}
+                onChange={(event) => setSelectedStrategy(event.target.value as StrategyId)}
+                aria-label="选择选股策略"
+              >
+                {strategies.map((strategy) => (
+                  <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>推荐状态</span>
+              <select
+                value={screenerSignal}
+                onChange={(event) => setScreenerSignal(event.target.value as ScreenerSignal)}
+                aria-label="筛选推荐状态"
+              >
+                <option value="recommended">严格推荐</option>
+                <option value="bullish">偏多以上</option>
+                <option value="strong">仅强势</option>
+                <option value="watch">仅观察</option>
+                <option value="cautious">仅谨慎</option>
+                <option value="all">全部状态</option>
+              </select>
+            </label>
+            <label>
+              <span>技术形态</span>
+              <select
+                value={screenerSetup}
+                onChange={(event) => setScreenerSetup(event.target.value as ScreenerSetup)}
+                aria-label="筛选技术形态"
+              >
+                <option value="all">全部形态</option>
+                <option value="pullback">缩量回调</option>
+                <option value="breakout">临近突破</option>
+                <option value="low-volatility">低波动 ATR ≤ 3%</option>
+              </select>
+            </label>
+            <label>
+              <span>最低评分</span>
+              <select
+                value={screenerMinimumScore}
+                onChange={(event) => setScreenerMinimumScore(Number(event.target.value))}
+                aria-label="设置最低策略评分"
+              >
+                <option value={0}>不限评分</option>
+                <option value={60}>60 分以上</option>
+                <option value={70}>70 分以上</option>
+                <option value={80}>80 分以上</option>
+              </select>
+            </label>
+            <label>
+              <span>结果排序</span>
+              <select
+                value={screenerSort}
+                onChange={(event) => setScreenerSort(event.target.value as ScreenerSort)}
+                aria-label="选择结果排序"
+              >
+                <option value="score">策略评分最高</option>
+                <option value="risk-reward">风险收益比最高</option>
+                <option value="change">当日涨幅最高</option>
+                <option value="volatility">ATR 波动最低</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="result-summary" aria-live="polite">
+          <span><Filter size={13} />筛出 <b>{screenedPicks.length}</b> / {data.picks.length} 只</span>
+          <span>{activeStrategy.name} · 数据截至 {new Date(data.updatedAt).toLocaleDateString("zh-CN")}</span>
+          {activeFilterCount > 0 && (
+            <button onClick={resetScreener}><RotateCcw size={12} />重置筛选</button>
+          )}
         </div>
         <div className="screener-grid">
           {screenedPicks.map((pick, index) => {
             const profile = pick.strategyScores[selectedStrategy];
+            const strictCandidate = isStrictCandidate(pick, selectedStrategy);
             return (
-              <button className="screener-card" key={pick.symbol} onClick={() => showStock(pick)}>
+              <button
+                className={`screener-card ${selectedStock.symbol === pick.symbol ? "selected" : ""}`}
+                key={pick.symbol}
+                onClick={() => showStock(pick)}
+              >
                 <div className="screener-card-top">
                   <span className="screener-rank">#{String(index + 1).padStart(2, "0")}</span>
                   <span className={`market-pill market-${pick.market.toLowerCase()}`}>{marketNames[pick.market]}</span>
-                  <span className={`signal-label signal-${profile.signal}`}>{profile.signal}</span>
+                  <span className={`signal-label ${strictCandidate ? "signal-qualified" : `signal-${profile.signal}`}`}>
+                    {strictCandidate ? "符合严选" : profile.blocked ? "硬规则拦截" : profile.signal}
+                  </span>
                   <b>{profile.score}</b>
                 </div>
                 <div className="screener-company">
@@ -497,11 +667,26 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                   <div><small>止损价</small><b>{pick.stopLoss}</b></div>
                   <div><small>盈亏比</small><b>{pick.riskReward}:1</b></div>
                 </div>
-                <div className="view-analysis">查看完整分析 <ChevronRight size={14} /></div>
+                <div className="card-indicators">
+                  <span>RSI {pick.rsi}</span>
+                  <span>乖离 {pick.bias5}%</span>
+                  <span>ATR {pick.atrPercent}%</span>
+                </div>
+                <div className="view-analysis">
+                  {selectedStock.symbol === pick.symbol ? "正在查看" : "查看完整分析"} <ChevronRight size={14} />
+                </div>
               </button>
             );
           })}
         </div>
+        {screenedPicks.length === 0 && (
+          <div className="empty-screener">
+            <span><SearchX size={23} /></span>
+            <strong>没有同时满足这些条件的股票</strong>
+            <p>严格筛选本来就可能为空。放宽市场、形态或评分条件后再比较，不建议为了凑结果降低硬规则。</p>
+            <button onClick={resetScreener}><RotateCcw size={13} />查看全部候选</button>
+          </div>
+        )}
       </section>
 
       <section className="stock-panel panel" id="analysis">
