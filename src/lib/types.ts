@@ -1,5 +1,16 @@
 export type Market = "US" | "KR" | "CN";
 export type StrategyId = "balanced" | "breakout" | "pullback" | "defensive";
+export type QuantRuleId =
+  | "three-up"
+  | "four-up"
+  | "bullish-stack"
+  | "macd-bullish"
+  | "breakout-20d"
+  | "volume-breakout"
+  | "healthy-pullback"
+  | "near-ma20"
+  | "low-volatility"
+  | "momentum-zone";
 
 export type StrategyScore = {
   score: number;
@@ -81,6 +92,8 @@ export type StockSignal = {
   riskReward: number;
   factorScores: FactorScores;
   strategyScores: Record<StrategyId, StrategyScore>;
+  quantRules: QuantRuleId[];
+  consecutiveUpDays: number;
   setupTags: string[];
   stopLoss: number;
   target: number;

@@ -4,6 +4,7 @@ import type {
   FlowPoint,
   Market,
   MarketSnapshot,
+  QuantRuleId,
   StockFlow,
   StockSearchResult,
   StockSignal,
@@ -149,6 +150,17 @@ function signalFromScore(score: number, blocked: boolean): StockSignal["signal"]
   if (score >= 64) return "偏多";
   if (score < 40) return "谨慎";
   return "观察";
+}
+
+function calculateConsecutiveUpDays(candles: Candle[]) {
+  let streak = 0;
+  for (let index = candles.length - 1; index > 0; index -= 1) {
+    const candle = candles[index];
+    const previous = candles[index - 1];
+    if (candle.close <= candle.open || candle.close <= previous.close) break;
+    streak += 1;
+  }
+  return streak;
 }
 
 function buildStrategyScores(input: {
@@ -568,6 +580,7 @@ export function analyzeCandles(
   const recentHigh = Math.max(...candles.slice(-21, -1).map((item) => item.high));
   const recentLow = Math.min(...candles.slice(-11).map((item) => item.low));
   const nearHigh = last.close >= recentHigh * 0.98;
+  const breakout20d = last.close > recentHigh;
   const macdBullish = macd > macdSignal;
   const healthyPullback = ma5 > ma20
     && last.close >= ma20
@@ -576,6 +589,19 @@ export function analyzeCandles(
     && volumeRatio < 1
     && Math.abs(bias5) <= 3;
   const blocked = rsi > 80 || bias5 > 5;
+  const consecutiveUpDays = calculateConsecutiveUpDays(candles);
+  const quantRules: QuantRuleId[] = [
+    ...(consecutiveUpDays >= 3 ? ["three-up" as const] : []),
+    ...(consecutiveUpDays >= 4 ? ["four-up" as const] : []),
+    ...(last.close > ma5 && ma5 > ma20 && ma20 > priorMa20 ? ["bullish-stack" as const] : []),
+    ...(macdBullish ? ["macd-bullish" as const] : []),
+    ...(breakout20d ? ["breakout-20d" as const] : []),
+    ...(change > 0 && volumeRatio >= 1.2 && volumeRatio <= 2.5 ? ["volume-breakout" as const] : []),
+    ...(healthyPullback ? ["healthy-pullback" as const] : []),
+    ...(last.close >= ma20 * 0.98 && last.close <= ma20 * 1.03 ? ["near-ma20" as const] : []),
+    ...(atrPercent <= 3 ? ["low-volatility" as const] : []),
+    ...(rsi >= 45 && rsi <= 70 && Math.abs(bias5) <= 3 ? ["momentum-zone" as const] : []),
+  ];
 
   const trend = clampScore(
     (last.close > ma20 ? 35 : 8)
@@ -653,6 +679,8 @@ export function analyzeCandles(
     riskReward: round(riskReward, 1),
     factorScores,
     strategyScores,
+    quantRules,
+    consecutiveUpDays,
     setupTags,
     stopLoss: round(stopLoss),
     target: round(target),

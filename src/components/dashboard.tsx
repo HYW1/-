@@ -40,6 +40,7 @@ import type {
   Candle,
   DashboardData,
   Market,
+  QuantRuleId,
   StockSearchResult,
   StockSignal,
   StrategyId,
@@ -60,8 +61,44 @@ const strategies: Array<{ id: StrategyId; name: string; note: string }> = [
 ];
 
 type ScreenerSignal = "recommended" | "bullish" | "strong" | "watch" | "cautious" | "all";
-type ScreenerSetup = "all" | "pullback" | "breakout" | "low-volatility";
 type ScreenerSort = "score" | "risk-reward" | "change" | "volatility";
+type RuleMatchMode = "all" | "any";
+type RulePresetId = "none" | "streak" | "trend" | "breakout" | "pullback" | "defensive" | "custom";
+
+const quantRuleDetails = {
+  "three-up": { label: "三连阳", note: "连续3日收阳且收盘逐日抬高", group: "K线节奏" },
+  "four-up": { label: "四连阳", note: "连续4日收阳且收盘逐日抬高", group: "K线节奏" },
+  "bullish-stack": { label: "多头排列", note: "收盘 > MA5 > MA20，且MA20向上", group: "趋势" },
+  "macd-bullish": { label: "MACD多头", note: "MACD位于信号线上方", group: "趋势" },
+  "breakout-20d": { label: "20日突破", note: "收盘突破此前20日最高价", group: "量价" },
+  "volume-breakout": { label: "温和放量", note: "上涨且量比介于1.2至2.5", group: "量价" },
+  "healthy-pullback": { label: "缩量回踩", note: "多头趋势内缩量回调且乖离受控", group: "买点" },
+  "near-ma20": { label: "靠近MA20", note: "收盘位于MA20的-2%至+3%", group: "买点" },
+  "low-volatility": { label: "低波动", note: "ATR波动率不高于3%", group: "风控" },
+  "momentum-zone": { label: "动量适中", note: "RSI 45至70且MA5乖离不超过3%", group: "风控" },
+} satisfies Record<QuantRuleId, { label: string; note: string; group: string }>;
+
+const quantRuleGroups: Array<{ label: string; rules: QuantRuleId[] }> = [
+  { label: "K线节奏", rules: ["three-up", "four-up"] },
+  { label: "趋势", rules: ["bullish-stack", "macd-bullish"] },
+  { label: "量价", rules: ["breakout-20d", "volume-breakout"] },
+  { label: "买点", rules: ["healthy-pullback", "near-ma20"] },
+  { label: "风控", rules: ["low-volatility", "momentum-zone"] },
+];
+
+const rulePresets: Array<{
+  id: Exclude<RulePresetId, "custom">;
+  name: string;
+  rules: QuantRuleId[];
+  mode: RuleMatchMode;
+}> = [
+  { id: "none", name: "自由选择", rules: [], mode: "all" },
+  { id: "streak", name: "连阳接力", rules: ["three-up"], mode: "all" },
+  { id: "trend", name: "趋势共振", rules: ["bullish-stack", "macd-bullish", "momentum-zone"], mode: "all" },
+  { id: "breakout", name: "放量突破", rules: ["breakout-20d", "volume-breakout"], mode: "all" },
+  { id: "pullback", name: "缩量回踩", rules: ["healthy-pullback", "near-ma20"], mode: "all" },
+  { id: "defensive", name: "低波稳健", rules: ["low-volatility", "momentum-zone"], mode: "all" },
+];
 
 const isStrictCandidate = (pick: StockSignal, strategy: StrategyId) => {
   const profile = pick.strategyScores[strategy];
@@ -149,7 +186,9 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const [selectedMarket, setSelectedMarket] = useState<Market>("US");
   const [screenerMarket, setScreenerMarket] = useState<Market | "ALL">("ALL");
   const [screenerSignal, setScreenerSignal] = useState<ScreenerSignal>("recommended");
-  const [screenerSetup, setScreenerSetup] = useState<ScreenerSetup>("all");
+  const [selectedQuantRules, setSelectedQuantRules] = useState<QuantRuleId[]>([]);
+  const [ruleMatchMode, setRuleMatchMode] = useState<RuleMatchMode>("all");
+  const [activeRulePreset, setActiveRulePreset] = useState<RulePresetId>("none");
   const [screenerMinimumScore, setScreenerMinimumScore] = useState(0);
   const [screenerSort, setScreenerSort] = useState<ScreenerSort>("score");
   const [screenerQuery, setScreenerQuery] = useState("");
@@ -187,14 +226,14 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           || (screenerSignal === "strong" && profile.signal === "强势")
           || (screenerSignal === "watch" && profile.signal === "观察")
           || (screenerSignal === "cautious" && profile.signal === "谨慎");
-        const matchesSetup = screenerSetup === "all"
-          || (screenerSetup === "pullback" && pick.setupTags.includes("缩量回调"))
-          || (screenerSetup === "breakout" && pick.setupTags.includes("临近突破"))
-          || (screenerSetup === "low-volatility" && pick.atrPercent <= 3);
+        const matchesRules = selectedQuantRules.length === 0
+          || (ruleMatchMode === "all"
+            ? selectedQuantRules.every((rule) => pick.quantRules.includes(rule))
+            : selectedQuantRules.some((rule) => pick.quantRules.includes(rule)));
         return matchesMarket
           && matchesQuery
           && matchesSignal
-          && matchesSetup
+          && matchesRules
           && profile.score >= screenerMinimumScore;
       });
 
@@ -211,10 +250,11 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
       screenerMarket,
       screenerMinimumScore,
       screenerQuery,
-      screenerSetup,
       screenerSignal,
       screenerSort,
+      selectedQuantRules,
       selectedStrategy,
+      ruleMatchMode,
     ],
   );
   const strictCandidateCount = useMemo(
@@ -226,7 +266,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   const activeFilterCount = [
     screenerMarket !== "ALL",
     screenerSignal !== "all",
-    screenerSetup !== "all",
+    selectedQuantRules.length > 0,
     screenerMinimumScore > 0,
     Boolean(screenerQuery.trim()),
   ].filter(Boolean).length;
@@ -236,10 +276,27 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
   function resetScreener() {
     setScreenerMarket("ALL");
     setScreenerSignal("all");
-    setScreenerSetup("all");
+    setSelectedQuantRules([]);
+    setRuleMatchMode("all");
+    setActiveRulePreset("none");
     setScreenerMinimumScore(0);
     setScreenerSort("score");
     setScreenerQuery("");
+  }
+
+  function applyRulePreset(presetId: Exclude<RulePresetId, "custom">) {
+    const preset = rulePresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setSelectedQuantRules(preset.rules);
+    setRuleMatchMode(preset.mode);
+    setActiveRulePreset(preset.id);
+  }
+
+  function toggleQuantRule(rule: QuantRuleId) {
+    setSelectedQuantRules((current) =>
+      current.includes(rule) ? current.filter((item) => item !== rule) : [...current, rule],
+    );
+    setActiveRulePreset("custom");
   }
 
   function showStock(stock: StockSignal) {
@@ -589,19 +646,6 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
               </select>
             </label>
             <label>
-              <span>技术形态</span>
-              <select
-                value={screenerSetup}
-                onChange={(event) => setScreenerSetup(event.target.value as ScreenerSetup)}
-                aria-label="筛选技术形态"
-              >
-                <option value="all">全部形态</option>
-                <option value="pullback">缩量回调</option>
-                <option value="breakout">临近突破</option>
-                <option value="low-volatility">低波动 ATR ≤ 3%</option>
-              </select>
-            </label>
-            <label>
               <span>最低评分</span>
               <select
                 value={screenerMinimumScore}
@@ -627,6 +671,78 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                 <option value="volatility">ATR 波动最低</option>
               </select>
             </label>
+          </div>
+          <div className="rule-builder">
+            <div className="rule-builder-head">
+              <div>
+                <span>量化规则组合</span>
+                <small>先选常用组合，也可以逐条自定义</small>
+              </div>
+              <div className="rule-match-mode" role="group" aria-label="量化规则匹配方式">
+                <button
+                  className={ruleMatchMode === "all" ? "active" : ""}
+                  disabled={selectedQuantRules.length === 0}
+                  onClick={() => {
+                    setRuleMatchMode("all");
+                    setActiveRulePreset("custom");
+                  }}
+                >
+                  全部满足
+                </button>
+                <button
+                  className={ruleMatchMode === "any" ? "active" : ""}
+                  disabled={selectedQuantRules.length === 0}
+                  onClick={() => {
+                    setRuleMatchMode("any");
+                    setActiveRulePreset("custom");
+                  }}
+                >
+                  任一满足
+                </button>
+              </div>
+            </div>
+            <div className="rule-presets" aria-label="常用量化规则组合">
+              <span>快捷组合</span>
+              {rulePresets.map((preset) => (
+                <button
+                  className={activeRulePreset === preset.id ? "active" : ""}
+                  key={preset.id}
+                  onClick={() => applyRulePreset(preset.id)}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+            <div className="quant-rule-groups">
+              {quantRuleGroups.map((group) => (
+                <div className="quant-rule-group" key={group.label}>
+                  <span>{group.label}</span>
+                  <div>
+                    {group.rules.map((rule) => {
+                      const detail = quantRuleDetails[rule];
+                      const selected = selectedQuantRules.includes(rule);
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className={selected ? "active" : ""}
+                          key={rule}
+                          onClick={() => toggleQuantRule(rule)}
+                          title={detail.note}
+                        >
+                          <i>{detail.label}</i>
+                          <small>{detail.note}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="rule-builder-summary" aria-live="polite">
+              {selectedQuantRules.length === 0
+                ? "未启用形态规则，展示由上方基础条件筛出的股票"
+                : `已选 ${selectedQuantRules.length} 条，股票需${ruleMatchMode === "all" ? "同时满足全部规则" : "命中任意一条规则"}`}
+            </div>
           </div>
         </div>
         <div className="result-summary" aria-live="polite">
@@ -660,7 +776,10 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
                 </div>
                 <p>{profile.summary}</p>
                 <div className="screener-tags">
-                  {pick.setupTags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}
+                  {(pick.quantRules.length
+                    ? pick.quantRules.slice(0, 3).map((rule) => quantRuleDetails[rule].label)
+                    : pick.setupTags.slice(0, 2)
+                  ).map((tag) => <span key={tag}>{tag}</span>)}
                 </div>
                 <div className="screener-levels">
                   <div><small>目标价</small><b>{pick.target}</b></div>
@@ -683,7 +802,7 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
           <div className="empty-screener">
             <span><SearchX size={23} /></span>
             <strong>没有同时满足这些条件的股票</strong>
-            <p>严格筛选本来就可能为空。放宽市场、形态或评分条件后再比较，不建议为了凑结果降低硬规则。</p>
+            <p>多规则同时满足时结果可能为空。可切换“任一满足”或减少形态规则，但不建议为了凑结果关闭追高硬限制。</p>
             <button onClick={resetScreener}><RotateCcw size={13} />查看全部候选</button>
           </div>
         )}
@@ -722,6 +841,24 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
             <p>{activeStockScore.summary}。{selectedStock.reason}</p>
             <div className="setup-tags">
               {selectedStock.setupTags.map((tag) => <span key={tag}>{tag}</span>)}
+            </div>
+            <div className="quant-evidence">
+              <div>
+                <span><Filter size={13} />量化形态命中</span>
+                <small>连续收阳 {selectedStock.consecutiveUpDays} 日</small>
+              </div>
+              {selectedStock.quantRules.length > 0 ? (
+                <ul>
+                  {selectedStock.quantRules.map((rule) => (
+                    <li key={rule}>
+                      <b>{quantRuleDetails[rule].label}</b>
+                      <span>{quantRuleDetails[rule].note}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>当前未命中预设形态；这不等于看空，只表示尚无明确的规则共振。</p>
+              )}
             </div>
             {selectedStock.flow && (
               <div className="real-flow">
