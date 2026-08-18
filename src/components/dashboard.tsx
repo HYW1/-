@@ -260,8 +260,8 @@ export default function Dashboard({ initialData }: { initialData: DashboardData 
     ],
   );
   const activeFilterCount = [
-    screenerMarket !== "ALL",
-    screenerSignal !== "all",
+    screenerMarket !== "CN",
+    screenerSignal !== "recommended",
     selectedQuantRules.length > 0,
     screenerMinimumScore > 0,
     Boolean(screenerQuery.trim()),

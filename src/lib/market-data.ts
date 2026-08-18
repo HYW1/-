@@ -813,8 +813,8 @@ export async function fetchDynamicCnCandidates(limit = 18): Promise<StockSearchR
 function detectMarketRegime(markets: MarketSnapshot[]): DailyScreen["regime"] {
   const cn = markets.find((item) => item.market === "CN");
   if (!cn) return "均衡";
-  if (cn.trend === "in" && cn.change >= 0.35) return "进攻";
-  if (cn.change <= -0.8 || (cn.trend === "out" && cn.change < 0)) return "防守";
+  if (cn.change >= 0.8 || (cn.trend === "in" && cn.change >= 0.25)) return "进攻";
+  if (cn.change <= -0.8 || (cn.trend === "out" && cn.change <= 0)) return "防守";
   return "均衡";
 }
 
