@@ -9,6 +9,7 @@ import type {
   StockSearchResult,
   StockSignal,
 } from "./types";
+import { calculateConsecutiveUpDays } from "./quant-rules";
 
 const SEARCH_CATALOG = [
   { symbol: "NVDA", name: "NVIDIA", market: "US" as const, exchange: "NASDAQ", aliases: ["英伟达", "nvidia"] },
@@ -150,17 +151,6 @@ function signalFromScore(score: number, blocked: boolean): StockSignal["signal"]
   if (score >= 64) return "偏多";
   if (score < 40) return "谨慎";
   return "观察";
-}
-
-function calculateConsecutiveUpDays(candles: Candle[]) {
-  let streak = 0;
-  for (let index = candles.length - 1; index > 0; index -= 1) {
-    const candle = candles[index];
-    const previous = candles[index - 1];
-    if (candle.close <= candle.open || candle.close <= previous.close) break;
-    streak += 1;
-  }
-  return streak;
 }
 
 function buildStrategyScores(input: {
